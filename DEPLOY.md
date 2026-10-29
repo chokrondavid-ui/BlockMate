@@ -1,8 +1,8 @@
 # Mettre Blockmate en ligne
 
-Compte environ 30 minutes, à faire une seule fois. Il te faut un compte GitHub, un compte Railway (railway.com, l'hébergeur), un compte Stripe et ton nom de domaine.
+Compte environ 30 minutes, à faire une seule fois. Il te faut un compte GitHub, un compte Render (render.com, l'hébergeur), un compte Stripe et ton nom de domaine.
 
-Le serveur n'a **aucune dépendance à installer**, il lui faut seulement Node 22.13 ou une version plus récente. Railway s'en occupe tout seul.
+Le serveur n'a **aucune dépendance à installer**, il lui faut seulement Node 22.13 ou une version plus récente. Render s'en occupe tout seul.
 
 ---
 
@@ -16,37 +16,31 @@ Le serveur n'a **aucune dépendance à installer**, il lui faut seulement Node 2
    - Tu dis à Claude « repo créé » : il pousse le code pour toi.
    - Ou tu le fais toi-même : dans le dossier du projet, `git remote add origin https://github.com/chokrondavid-ui/blockmate.git`, puis `git push -u origin main`.
 
-## 2. Héberger sur Railway (10 min)
+## 2. Héberger sur Render (10 min)
 
-1. Sur railway.com, connecte-toi avec GitHub.
-   - Prends le plan **Hobby** (5 $/mois).
-   - L'essai gratuit suffit pour tester.
-2. Clique **New Project**, puis **Deploy from GitHub repo**, et choisis `blockmate`.
-3. Ajoute un **volume**, c'est-à-dire le disque où sont gardés les comptes des joueurs :
-   - Ouvre le service, puis **Settings → Volumes → Add volume**.
-   - Mount path : `/data`.
-   - ⚠️ Sans volume, tous les comptes sont effacés à chaque mise à jour.
-4. Ajoute les variables (**Variables → Raw editor**) en remplaçant par tes valeurs :
-   ```
-   NODE_ENV=production
-   PUBLIC_URL=https://www.ton-domaine.com
-   DB_FILE=/data/blockmate.db
-   ```
-   Les deux clés Stripe s'ajoutent à l'étape 4.
-5. Va dans **Settings → Networking**, clique **Generate Domain** et ouvre l'adresse en `.up.railway.app` : le jeu tourne.
+Railway a fermé les inscriptions, donc on utilise Render, qui fait la même chose. Le fichier `render.yaml` du projet configure tout automatiquement.
+
+1. Sur render.com, clique **Get Started** et inscris-toi avec **GitHub**.
+2. Clique **New +**, puis **Blueprint**, et choisis le dépôt `blockmate`. Autorise Render à y accéder si on te le demande.
+3. Render lit `render.yaml` et prépare tout seul :
+   - un serveur « Starter » à Francfort, environ 7 $/mois ;
+   - un disque de 1 Go sur `/data`, environ 0,25 $/mois ;
+   - les réglages du site.
+4. Render te demande `STRIPE_SECRET_KEY` et `STRIPE_WEBHOOK_SECRET`. Laisse-les **vides** pour l'instant et clique **Apply**.
+5. Attends 2 à 3 minutes, puis ouvre l'adresse `https://blockmate-xxxx.onrender.com` : le jeu tourne.
    - Sans clés Stripe, la boutique affiche « Payments open very soon ».
-6. ⚠️ Laisse **1 seule instance** (Replicas = 1). Les parties en ligne vivent dans la mémoire du serveur.
+6. ⚠️ Ne passe pas en plan Free : il n'a pas de disque, les comptes seraient effacés et le serveur s'endort.
 
-## 3. Brancher ton nom de domaine (5 min, puis jusqu'à 1 h d'attente)
+## 3. Brancher dbcblockmate.com (5 min, puis jusqu'à 1 h d'attente)
 
-1. Dans Railway, va dans **Settings → Networking → Custom Domain** et tape `www.ton-domaine.com`.
-   - Railway t'affiche une valeur **CNAME**, du type `xxxx.up.railway.app`.
-2. Chez Hostinger, va dans **Domaines → ton domaine → DNS / Nameservers** et ajoute :
-   - Type `CNAME`, Nom `www`, Cible = la valeur donnée par Railway.
-   - Supprime l'ancien enregistrement `www` s'il en existe un.
-3. Toujours chez Hostinger, ajoute une **redirection** de `ton-domaine.com` vers `https://www.ton-domaine.com`, pour que l'adresse sans « www » marche aussi.
-4. Attends que Railway affiche une coche verte. Le cadenas HTTPS est automatique.
-5. Vérifie que `PUBLIC_URL` correspond exactement à cette adresse, puis redémarre le service.
+1. Dans Render, ouvre le service `blockmate`, puis **Settings → Custom Domains → Add**, et tape `www.dbcblockmate.com`.
+2. Render t'affiche une cible **CNAME**, du type `blockmate-xxxx.onrender.com`.
+3. Chez Hostinger, va dans **Domaines → dbcblockmate.com → DNS / Nameservers** :
+   - ajoute un enregistrement Type `CNAME`, Nom `www`, Cible = la valeur donnée par Render ;
+   - supprime l'ancien `www` s'il existe ;
+   - ne touche pas aux lignes `MX`, elles servent à ta boîte mail.
+4. Chez Hostinger, ajoute une **redirection** de `dbcblockmate.com` vers `https://www.dbcblockmate.com`.
+5. Dans Render, clique **Verify**. Le cadenas HTTPS s'active tout seul après quelques minutes.
 
 ## 4. Activer les paiements Stripe (10 min)
 
@@ -65,13 +59,13 @@ Le serveur n'a **aucune dépendance à installer**, il lui faut seulement Node 2
      - `charge.refunded`
    - Copie le **secret de signature** (`whsec_…`).
 4. Ouvre **Paramètres → Facturation → Portail client** et active-le. C'est là que les abonnés Plus peuvent se désabonner.
-5. Dans Railway, ajoute les deux clés :
+5. Dans Render, onglet **Environment**, ajoute les deux clés :
    ```
    STRIPE_SECRET_KEY=sk_live_...
    STRIPE_WEBHOOK_SECRET=whsec_...
    ```
 6. Fais un achat réel de 1,99 € pour vérifier que les Blockcoins arrivent, puis rembourse-le depuis Stripe.
-   - Un remboursement ne retire pas les pièces automatiquement : il apparaît dans les logs Railway et se traite à la main.
+   - Un remboursement ne retire pas les pièces automatiquement : il apparaît dans les logs Render et se traite à la main.
 
 ## 5. Avant d'ouvrir au public
 
@@ -91,10 +85,10 @@ Chaque `git push` sur la branche `main` redéploie automatiquement, en environ 1
 
 ## Sauvegardes
 
-La base est un seul fichier : `/data/blockmate.db`. Dans Railway, va dans **Volume → Backups** et active les sauvegardes automatiques.
+La base est un seul fichier : `/data/blockmate.db`. Render fait une sauvegarde automatique quotidienne du disque, que tu retrouves dans **Disks → Snapshots**.
 
 ## En cas de souci
 
-- **Logs** : Railway → Deployments → View logs.
+- **Logs** : Render → ton service → **Logs**.
 - **Santé du serveur** : `https://www.ton-domaine.com/healthz` doit répondre `{"ok":true}`.
 - **Chiffres en direct** : `https://www.ton-domaine.com/api/stats` donne les joueurs en ligne, la file d'attente et les parties en cours.
