@@ -21,6 +21,8 @@ function createServer(opts = {}) {
   const online = Online({ accounts, db, log });
   const stripe = Stripe({ secret: env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET, baseUrl: BASE, accounts, db, log });
   const DEMO_PAY = !stripe.enabled && !PROD;
+  // The site answers on www.domain and on domain alone.
+  const ORIGINS = new Set([BASE, BASE.replace('://www.', '://'), BASE.replace('://', '://www.')].concat((env.EXTRA_ORIGINS || '').split(',').filter(Boolean)));
   const ROOT = path.join(__dirname, '..');
 
   // ---------- helpers ----------
@@ -114,7 +116,7 @@ function createServer(opts = {}) {
     const ip = ipOf(req);
     if (req.method === 'POST') {
       // Basic protection against other sites posting on behalf of a player.
-      const origin = req.headers.origin; if (origin && PROD && origin !== BASE) return json(res, 403, { error: 'Bad origin.' });
+      const origin = req.headers.origin; if (origin && PROD && !ORIGINS.has(origin)) return json(res, 403, { error: 'Bad origin.' });
       if (limited('post:' + ip, 240, 60e3)) return json(res, 429, { error: 'Slow down a little.' });
     }
     let data = {};
