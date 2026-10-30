@@ -372,9 +372,11 @@ body{transition:background-color .6s}
 /* next pieces */
 .nextq{display:flex;align-items:center;gap:12px;justify-content:center;font-family:var(--f-ui);font-weight:700;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-3)}
 .nq{display:flex;gap:8px}
-.nq .nx{width:76px;height:60px;border-radius:10px;background:rgba(10,6,18,.5);border:1px dashed var(--line-2);display:grid;place-items:center}
-.nq .nx:first-child{border-style:solid;border-color:var(--line-2)}
-.nq .mini{--m:12px!important}
+.nq .nx{width:78px;height:68px;border-radius:10px;background:rgba(10,6,18,.5);border:1px dashed var(--line-2);display:grid;place-items:center}
+.nq .nx.new{border-style:solid;border-color:var(--orange);box-shadow:0 0 12px rgba(242,120,28,.25);position:relative}
+.nq .nx.new::before{content:'NEW';position:absolute;top:-8px;right:-6px;background:var(--orange);color:#1C0B00;font:700 9px var(--f-ui);letter-spacing:.1em;padding:2px 5px;border-radius:4px}
+.nq .nx.tbd{font-size:11px;letter-spacing:.08em;color:var(--text-3);text-transform:uppercase}
+
 /* the opponent's hand, live */
 .peek{position:absolute;z-index:4;pointer-events:none;opacity:.6;transition:left .07s linear,top .07s linear}
 .peek i{position:absolute;border-radius:22%;box-shadow:0 0 0 2px rgba(255,255,255,.7)}
@@ -390,12 +392,8 @@ body{transition:background-color .6s}
 .log .m b{display:block;font-size:11px;letter-spacing:.06em;color:var(--text-3);font-weight:700}
 .log .m .e{font-size:26px;line-height:1.1}
 .log .sys{align-self:center;color:var(--text-3);font-size:12px}
-.cin{display:grid;grid-template-columns:auto 1fr auto;gap:6px}
+.cin{display:grid;grid-template-columns:1fr auto;gap:6px}
 .cin .f{min-width:0;padding:8px 10px}
-.stk{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px;max-height:150px;overflow:auto}
-.stk button{background:#2A1F45;border:1px solid var(--line);border-radius:9px;padding:6px 2px;display:grid;justify-items:center;font-size:11px;color:var(--text-2)}
-.stk button span{font-size:24px;line-height:1.1}
-.stk button[disabled]{opacity:.35}
 .bub{position:absolute;z-index:7;left:50%;top:62px;transform:translate(-50%,0);background:#fff;color:#140A1E;font-weight:700;padding:7px 12px;border-radius:12px;max-width:220px;white-space:normal;text-align:center;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.45);animation:bub 3.2s ease forwards;pointer-events:none}
 .bub .e{font-size:30px;line-height:1}
 .bub::after{content:"";position:absolute;left:50%;top:-7px;margin-left:-7px;border:7px solid transparent;border-top:0;border-bottom-color:#fff}
@@ -433,12 +431,11 @@ body{transition:background-color .6s}
 .bundle .its > *{width:44px;height:44px}
 .bundle .ft{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .bundle .pr{display:flex;gap:6px;align-items:center;font-family:var(--f-ui);font-weight:700;font-size:18px}
-.pvsticker{display:grid;justify-items:center;gap:4px}.pvsticker span{font-size:40px;line-height:1}.pvsticker em{font-style:normal;font-size:12px;color:var(--text-2)}
 .pvtheme{width:86%;height:70%;border-radius:10px;border:1px solid var(--line-2);position:relative;overflow:hidden}
 .promo{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .promo .f{flex:1;min-width:160px;text-transform:uppercase}
 .boostb{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,#E2A92E,#FF7A2E);color:#1C0B00;font:700 11px var(--f-ui);letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:6px}
-.gift{width:120px;height:120px;margin:6px auto;display:grid;place-items:center;font-size:70px;animation:giftshake .55s ease-in-out 2}
+.gift{width:120px;height:120px;margin:6px auto;display:grid;place-items:center;animation:giftshake .55s ease-in-out 2}
 @keyframes giftshake{25%{transform:rotate(-12deg) scale(1.05)}75%{transform:rotate(12deg) scale(1.05)}}
 .reveal{display:grid;justify-items:center;gap:8px;animation:sheetin .4s ease-out}
 /* legendary skins */
@@ -517,12 +514,11 @@ body{transition:background-color .6s}
       <div class="boardwrap" id="boardwrap"><div class="board" id="board"><div class="grid" id="grid"></div><canvas class="fx" id="fx"></canvas></div></div>
       <div class="status" id="status"></div>
       <div class="tray" id="tray"></div>
-      <div class="nextq" id="nextq"><span>Next</span><div class="nq" id="nq"></div></div>
+      <div class="nextq" id="nextq"><span id="nqLabel">Next</span><div class="nq" id="nq"></div></div>
     </div>
     <div class="side"><div class="pl" id="p1"><div class="hd"><span class="pav" id="a1"></span><div class="who"><b id="n1">Bot</b><span id="e1"></span></div></div><div class="scrow"><span class="dot blk" id="d1"></span><div class="sc num" id="s1">0</div></div><div class="clk num" id="k1" hidden>10:00</div><div class="cmb" id="c1"></div><div class="tt" id="t1"></div></div>
       <div class="chat" id="chat" hidden><div class="chd"><b>Chat</b><button type="button" class="link" id="mute">Mute</button></div><div class="log" id="log" aria-live="polite"></div>
-        <div class="stk" id="stk" hidden></div>
-        <form class="cin" id="cin"><button type="button" class="icobtn" id="stkBtn" aria-label="Stickers">😀</button><input class="f" id="ctext" maxlength="120" autocomplete="off" placeholder="Say something nice…" aria-label="Message"><button class="btn main sm" type="submit">Send</button></form></div></div>
+        <form class="cin" id="cin"><input class="f" id="ctext" maxlength="120" autocomplete="off" placeholder="Say something nice…" aria-label="Message"><button class="btn main sm" type="submit">Send</button></form></div></div>
   </div>
 </section>
 

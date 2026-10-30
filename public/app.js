@@ -2,7 +2,7 @@
 (function () {
 'use strict';
 const C = window.BMCatalog, E = window.BMGame;
-const { SKINS, RIVAL, GLOWS, REACTS, AVATARS, SPRITES, THEMES, STICKERS, BUNDLES, RARITY, rarityOf, CATS, LEVELS, TIERS, COUNTRIES, DAILY, PRODUCTS, STAKES, tierOf, mix, euro } = C;
+const { SKINS, RIVAL, GLOWS, REACTS, AVATARS, SPRITES, THEMES, BUNDLES, RARITY, rarityOf, CATS, LEVELS, TIERS, COUNTRIES, DAILY, PRODUCTS, STAKES, tierOf, mix, euro } = C;
 const { N, SHAPES, DIM } = E;
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -320,7 +320,6 @@ function preview(cat, key, it) {
   if (cat === 'glow') return `<div class="pvb">${[0, 1, 2, 3].map(() => blkHtml(skinOf(P.eq.skin), 26, key)).join('')}</div>`;
   if (cat === 'blast') return `<canvas data-blast="${key}" width="150" height="84" style="width:100%;height:84px"></canvas>`;
   if (cat === 'avatar') return avatarHtml(key, 76);
-  if (cat === 'sticker') return `<span class="pvsticker"><span>${it.e}</span><em>${esc(it.name)}</em></span>`;
   if (cat === 'theme') return `<span class="pvtheme${it.anim ? ' avt anim' : ''}" style="background:radial-gradient(80% 60% at 50% 0%,${rgba(it.hex, .35)},transparent 70%),radial-gradient(60% 50% at 90% 100%,${rgba(it.glow, .45)},transparent 70%),${it.bg}"></span>`;
   return `<span class="word" style="${it.fx === 'neon' ? 'color:#fff;text-shadow:0 0 8px #5BD8FF,0 0 16px #FF4FA3' : `background:${it.col};-webkit-background-clip:text;background-clip:text;color:transparent`}">${esc(it.words[1])}</span>`;
 }
@@ -356,9 +355,8 @@ async function itemClick(cat, k) {
 function bundleItems(items, size) {
   return items.map(([cat, k]) => { const it = CATS[cat].data[k];
     if (cat === 'avatar') return avatarHtml(k, size); if (cat === 'skin') return blkHtml(it, size); if (cat === 'glow') return blkHtml(skinOf(P.eq.skin), size, k);
-    if (cat === 'sticker') return `<span style="font-size:${Math.round(size * .7)}px;display:grid;place-items:center">${it.e}</span>`;
     if (cat === 'theme') return `<span class="avt" style="width:${size}px;height:${size}px;background:radial-gradient(70% 60% at 50% 0%,${rgba(it.hex, .5)},transparent),${it.bg}"></span>`;
-    if (cat === 'blast') return `<span style="font-size:${Math.round(size * .62)}px;display:grid;place-items:center">💥</span>`;
+    if (cat === 'blast') return `<span class="tag" style="display:grid;place-items:center;font-size:10px;text-align:center">${esc(it.name)}</span>`;
     return `<span class="word" style="font-size:${Math.round(size * .3)}px;display:grid;place-items:center;text-align:center;line-height:1;${it.col && it.fx !== 'neon' ? `background:${it.col};-webkit-background-clip:text;background-clip:text;color:transparent` : 'color:#fff'}">${esc(it.words ? it.words[0] : CATS[cat].label)}</span>`; }).join('');
 }
 function bundleSheet(id) {
@@ -377,7 +375,7 @@ function untilMidnightParis() {
 const SHOP_TABS = [['featured', 'Today', '★'], ['bundles', 'Packs', Object.keys(BUNDLES).length], ['store', 'Store', '€']];
 const catsBar = () => `<div class="cats" role="group" aria-label="Category">${SHOP_TABS.map(([k, l, n]) => `<button type="button" class="${k === 'store' ? 'money' : ''}" data-shop="${k}" aria-pressed="${shopCat === k}">${l}<span>${n}</span></button>`).join('')}${Object.entries(CATS).map(([k, c]) => `<button type="button" data-shop="${k}" aria-pressed="${k === shopCat}">${c.label}<span>${Object.keys(c.data).length}</span></button>`).join('')}</div>`;
 function plusBanner() {
-  return `<div class="plus"><div style="position:relative;z-index:1"><h3>Blockmate Plus</h3><p>Exclusive skins, avatars, stickers and lobbies · double daily reward · <b>ranked wins ×2 Elo</b> for 3 days after subscribing (7 days yearly)</p></div>
+  return `<div class="plus"><div style="position:relative;z-index:1"><h3>Blockmate Plus</h3><p>Exclusive skins, avatars and lobbies · double daily reward · <b>ranked wins ×2 Elo</b> for 3 days after subscribing (7 days yearly)</p></div>
       <button class="btn main" type="button" id="plusBtn" style="position:relative;z-index:1">${P.plus ? 'Plus is active' : 'See Plus · ' + euro(PRODUCTS.plusMonth.cents) + ' / month'}</button></div>`;
 }
 function viewShop(v) {
@@ -396,7 +394,6 @@ function viewShop(v) {
     const order = ['Free', 'Classic', 'Solid', 'Common', 'Patterns', 'Rare', 'Animated', 'Epic', 'Legendary', 'Plus exclusive', 'Pack exclusive'];
     body = Object.entries(groups).sort((a, b) => (order.indexOf(a[0]) + 99) % 99 - (order.indexOf(b[0]) + 99) % 99).map(([g, list]) => `<div class="grp">${g === 'Plus exclusive' ? '<span class="badge gd">Plus</span> Exclusive' : esc(g)}</div>
       <div class="items">${list.map(k => itemCard(shopCat, k)).join('')}</div>`).join('');
-    if (shopCat === 'sticker') body = '<p class="note" style="margin:0">Stickers are sent from the chat during online games.</p>' + body;
     if (shopCat === 'theme') body = '<p class="note" style="margin:0">A lobby theme recolours the whole site around you.</p>' + body;
   }
   v.innerHTML = `<h1 class="pt">Shop</h1><div class="shop">${catsBar()}<div class="stack">${plusBanner()}${body}
@@ -404,7 +401,7 @@ function viewShop(v) {
   v.querySelector('#plusBtn').onclick = () => plusSheet();
   v.querySelectorAll('[data-shop]').forEach(b => b.onclick = () => { shopCat = b.dataset.shop; renderView(); });
   v.querySelectorAll('[data-bundle]').forEach(b => b.onclick = () => bundleSheet(b.dataset.bundle));
-  const ph = v.querySelector('[data-phoenix]'); if (ph) ph.onclick = () => checkoutSheet('phoenixPack', 'A full mythic set: 7 exclusive items, plus 1,000 Blockcoins.');
+  const ph = v.querySelector('[data-phoenix]'); if (ph) ph.onclick = () => checkoutSheet('phoenixPack', 'A full mythic set: 6 exclusive items, plus 1,000 Blockcoins.');
   bindItems(v);
 }
 function bundlesHtml() {
@@ -416,7 +413,7 @@ function phoenixCard() {
   const p = PRODUCTS.phoenixPack; const owned = p.items.every(([c, k]) => owns(c, k));
   return `<button class="bundle ex" type="button" data-phoenix="1" ${owned ? 'disabled' : ''} style="border-color:#FF6A2B;box-shadow:0 0 0 1px #FF6A2B inset,0 0 30px rgba(255,106,43,.25);margin-top:4px">
     <em class="badge or" style="justify-self:start">Mythic · Store</em><h4>Phoenix pack</h4><div class="its">${bundleItems(p.items, 44)}${coinSvg(40)}</div>
-    <div class="ft"><span class="muted">7 exclusive items + ${p.coins.toLocaleString('en-US')} Blockcoins</span>${owned ? '<span class="tg own">Owned</span>' : `<span class="pr num">${euro(p.cents)}</span>`}</div></button>`;
+    <div class="ft"><span class="muted">6 exclusive items + ${p.coins.toLocaleString('en-US')} Blockcoins</span>${owned ? '<span class="tg own">Owned</span>' : `<span class="pr num">${euro(p.cents)}</span>`}</div></button>`;
 }
 function pile(n) { const k = n < 1000 ? 1 : n < 2000 ? 2 : n < 5000 ? 3 : n < 10000 ? 4 : 5; let h = ''; for (let i = 0; i < k; i++) h += coinSvg(i === Math.floor(k / 2) ? 46 : 38); return h; }
 function viewStore(v) {
@@ -424,7 +421,7 @@ function viewStore(v) {
   const st = PRODUCTS.starter;
   v.innerHTML = `<h1 class="pt">Shop</h1><div class="shop">${catsBar()}
   <div class="stack">
-    <div class="plus"><div style="position:relative;z-index:1"><h3>Blockmate Plus</h3><p>Exclusive skins, avatars, stickers and lobbies · double daily reward · ranked wins ×2 Elo for 3 days after subscribing (7 days yearly)</p></div>${P.plus ? '<button class="btn" type="button" id="plusM" style="position:relative;z-index:1">Plus is active · manage</button>' : ''}</div>
+    <div class="plus"><div style="position:relative;z-index:1"><h3>Blockmate Plus</h3><p>Exclusive skins, avatars and lobbies · double daily reward · ranked wins ×2 Elo for 3 days after subscribing (7 days yearly)</p></div>${P.plus ? '<button class="btn" type="button" id="plusM" style="position:relative;z-index:1">Plus is active · manage</button>' : ''}</div>
     ${P.plus ? '' : `<div class="subs"><button class="sub" type="button" data-sub="plusMonth"><b>Monthly</b><span class="p">${euro(PRODUCTS.plusMonth.cents)} <small>/ month</small></span><span class="note">Cancel anytime · 3 days of ×2 Elo</span></button>
       <button class="sub" type="button" data-sub="plusYear"><em class="badge gd">Save 33%</em><b>Yearly</b><span class="p">${euro(PRODUCTS.plusYear.cents)} <small>/ year</small></span><span class="note">${euro(Math.round(PRODUCTS.plusYear.cents / 12))} a month · 7 days of ×2 Elo</span></button></div>`}
     ${phoenixCard()}
@@ -434,9 +431,9 @@ function viewStore(v) {
     <div class="panel"><div class="ph"><h3>Promo code</h3></div><form class="promo" id="promo"><input class="f" id="pcode" maxlength="24" placeholder="Enter a code" autocomplete="off" aria-label="Promo code"><button class="btn main sm" type="submit">Redeem</button></form><div class="note" id="pmsg"></div></div>
     <p class="note" style="margin:0">Blockcoins you buy are spent in the Shop. Only Blockcoins you win by playing can be bet in friend duels, and no Blockcoins can be cashed out. Prices include all taxes.</p></div></div>`;
   v.querySelectorAll('[data-shop]').forEach(b => b.onclick = () => { shopCat = b.dataset.shop; renderView(); });
-  v.querySelectorAll('[data-pack]').forEach(b => b.onclick = () => checkoutSheet(b.dataset.pack, 'Spend them on skins, avatars, stickers and more.'));
+  v.querySelectorAll('[data-pack]').forEach(b => b.onclick = () => checkoutSheet(b.dataset.pack, 'Spend them on skins, avatars, lobbies and more.'));
   v.querySelectorAll('[data-sub]').forEach(b => b.onclick = () => checkoutSheet(b.dataset.sub, 'All premium items, double daily reward, and ×2 Elo on ranked wins for ' + (b.dataset.sub === 'plusYear' ? 7 : 3) + ' days.'));
-  const ph = v.querySelector('[data-phoenix]'); if (ph) ph.onclick = () => checkoutSheet('phoenixPack', 'A full mythic set: 7 exclusive items, plus 1,000 Blockcoins.');
+  const ph = v.querySelector('[data-phoenix]'); if (ph) ph.onclick = () => checkoutSheet('phoenixPack', 'A full mythic set: 6 exclusive items, plus 1,000 Blockcoins.');
   const pm = v.querySelector('#plusM'); if (pm) pm.onclick = () => plusSheet();
   const sb = v.querySelector('#starter'); if (sb) sb.onclick = () => checkoutSheet('starter', st.coins + ' Blockcoins, the Racing skin and the Neon glow. One time only.');
   v.querySelector('#promo').onsubmit = async e => { e.preventDefault(); const m = v.querySelector('#pmsg'); const code = v.querySelector('#pcode').value.trim(); if (!code) return;
@@ -468,7 +465,7 @@ function reconnect() { LB.world = LB.country = LB.friends = null; FR.rows = null
 // The welcome gift when a guest creates an account: a box shakes, then opens.
 function giftSheet(prize) {
   if (!prize) { toast('Account created. Welcome, ' + P.name + '!'); return; }
-  openSheet(`<h3 class="gold">Welcome gift!</h3><p>Thanks for joining, ${esc(P.name)}. Open your gift.</p><div class="gift" aria-hidden="true">🎁</div><div class="acts"><button class="btn main" type="button" id="open">Open</button></div>`, s => {
+  openSheet(`<h3 class="gold">Welcome gift!</h3><p>Thanks for joining, ${esc(P.name)}. Open your gift.</p><div class="gift" aria-hidden="true">${blkHtml(SKINS.gold, 96)}</div><div class="acts"><button class="btn main" type="button" id="open">Open</button></div>`, s => {
     s.querySelector('#open').onclick = () => {
       let what, show;
       if (prize.coins) { what = prize.coins + ' Blockcoins'; show = `<div style="display:flex;gap:6px">${pile(prize.coins)}</div>`; }
@@ -515,7 +512,7 @@ function viewProfile(v) {
     <div class="panel"><div class="ph"><h3>Blockmate Plus</h3>${P.plus ? '<span class="badge gd">Active</span>' : ''}</div><p class="muted" style="margin:0">${P.plus ? 'All premium items are unlocked.' : 'Premium skins and effects, double daily reward.'}</p><button class="btn${P.plus ? '' : ' main'}" type="button" id="plusP">${P.plus ? 'Manage Plus' : 'See Plus'}</button></div></div>
   <div class="stack">${account}</div></div>
   <div class="panel"><div class="ph"><h2>How it works</h2></div>
-    <details class="g"><summary>The game</summary><div><p>Two players share one 8×8 board and 3 pieces. On your turn, drag a piece onto the board: a white outline shows exactly where it will land, and it snaps to the nearest free spot. Your rival then picks from what's left, plus a new piece.</p><p>Each block you place is worth 1 point. When a player can't place any piece, the game ends and the other player gets a +25 block bonus. Highest score wins.</p><p>The 3 next pieces are shown under the tray: when a piece is played, the first of them takes its place. Plan ahead, and think about what you leave to your rival.</p><p>Online and on one screen, each player has 10 minutes for the whole game, like chess. Run out of time and you lose. Online, you can watch the piece your rival is holding and where they drag it.</p></div></details>
+    <details class="g"><summary>The game</summary><div><p>Two players share one 8×8 board and 3 pieces. On your turn, drag a piece onto the board: a white outline shows exactly where it will land, and it snaps to the nearest free spot. Your rival then picks from what's left, plus a new piece.</p><p>Each block you place is worth 1 point. When a player can't place any piece, the game ends and the other player gets a +25 block bonus. Highest score wins.</p><p>Under the tray you see the next piece. The piece you play is replaced by it, so you always know the 3 choices you leave to your rival: plan your move with that in mind.</p><p>Online and on one screen, each player has 5 minutes for the whole game, like chess. Run out of time and you lose. Online, you can watch the piece your rival is holding and where they drag it.</p></div></details>
     <details class="g"><summary>Lines & combos</summary><div><p>Fill a full row or column to clear it. Each line is worth 10 points, and clearing several at once pays more:</p>
       <table><tr><td>1 line</td><td>10</td></tr><tr><td>2 lines at once</td><td>30</td></tr><tr><td>3 lines at once</td><td>60</td></tr><tr><td>4 lines at once</td><td>100</td></tr></table>
       <p>Clear lines on your next turns too to build a combo: combo 2 multiplies your line points by 1.25, combo 3 by 1.5, combo 4 by 1.75. Your combo bar sits under your score and drops to 0 when you place a piece that clears nothing.</p></div></details>
@@ -594,7 +591,6 @@ const fx = new FX($('fx'));
 // G.me is the seat this browser controls (always 0 except online). The left panel always shows G.me.
 // Colours follow the seat, so both players see the same colours on their screens.
 let G = null, cells = [];
-const NEUTRAL = C.S('Next', '#8E80AE', 0);
 const myCard = () => ({ name: P.name, elo: P.elo, plus: P.plus, eq: P.eq, custom: P.custom });
 function cardLook(card) {
   const okItem = (cat, k) => { const it = CATS[cat].data[k]; return it && (!it.plus || card.plus) ? k : null; };
@@ -622,14 +618,14 @@ async function startSolo(level, ranked) {
 function startLocal() {
   SND.init();
   openGame({ mode: 'local', st: E.newState((Math.random() * 2 ** 32) >>> 0), me: 0, look: seatLooks(myCard(), null), avs: [P.eq.avatar, 'smile'], names: [P.name, 'Player 2'], sub: ['Player 1', 'Player 2'],
-    modeHtml: 'Duel · <b>Same screen</b> · 10 min each', stake: 0, clk: { ms: [C.CLOCK_MS, C.CLOCK_MS], at: Date.now(), run: true } });
+    modeHtml: 'Duel · <b>Same screen</b> · 5 min each', stake: 0, clk: { ms: [C.CLOCK_MS, C.CLOCK_MS], at: Date.now(), run: true } });
 }
 function startOnline(m) {
   const s = m.state; const cards = []; cards[m.you] = Object.assign({}, m.meCard, { plus: P.plus, eq: P.eq, custom: P.custom }); cards[1 - m.you] = m.opp;
   const look = seatLooks(cards[0], cards[1]);
   const names = cards.map(c => c.name), sub = cards.map(c => tierOf(c.elo)[1] + ' · ' + c.elo + ' Elo');
   openGame({ mode: 'online', kind: s.kind, mid: s.id, st: pickState(s), me: m.you, look, avs: cards.map(cardAvatar), names, sub, opp: m.opp, stake: s.stake, clk: clockFrom(s),
-    modeHtml: s.kind === 'ranked' ? 'Online · <b>Ranked</b> · 10 min each' : `Friend duel · <b>${s.stake ? s.stake + ' coins' : 'Friendly'}</b> · 10 min each` });
+    modeHtml: s.kind === 'ranked' ? 'Online · <b>Ranked</b> · 5 min each' : `Friend duel · <b>${s.stake ? s.stake + ' coins' : 'Friendly'}</b> · 5 min each` });
   if (!m.resume) SND.ping();
 }
 const pickState = s => ({ board: s.board, tray: s.tray, next: s.next || [], scores: s.scores, combo: s.combo, best: s.best, turn: s.turn, over: s.over, stuck: s.stuck });
@@ -639,7 +635,7 @@ function openGame(o) {
   $('gMode').innerHTML = o.modeHtml;
   $('stakebar').hidden = !o.stake; if (o.stake) $('stakebar').innerHTML = `${coinSvg(18)}${o.stake} Blockcoins each on the line`;
   $('page').hidden = true; $('foot').hidden = true; $('game').hidden = false; sheetKind = null; closeSheet(); resignArmed = false; $('gResign').textContent = 'Resign'; renderSnd(); renderMu(); MUS.go('game');
-  $('chat').hidden = o.mode !== 'online'; $('log').innerHTML = ''; $('stk').hidden = true; $('mute').textContent = 'Mute';
+  $('chat').hidden = o.mode !== 'online'; $('log').innerHTML = ''; $('mute').textContent = 'Mute';
   if (o.mode === 'online') sysMsg('Be nice: insults, racism and threats are blocked.');
   buildGrid(); requestAnimationFrame(() => fx.size()); renderAll(); startTurn();
 }
@@ -670,9 +666,22 @@ function renderTray() { const t = $('tray'); t.innerHTML = ''; const human = isH
     s.appendChild(miniPiece(si, L.skin, 92)); if (!E.canPlace(G.st.board, si)) s.classList.add('dim'); if (!human) s.classList.add('off'); if (G.sel === ti) s.classList.add('sel');
     if (G.peek && G.peek.ti === ti && !human) s.classList.add('opsel');
     s.setAttribute('aria-label', 'Piece of ' + SHAPES[si].length + ' blocks'); t.appendChild(s); });
-  const nq = $('nq'); nq.innerHTML = ''; (G.st.next || []).forEach(si => { const b = document.createElement('div'); b.className = 'nx'; b.appendChild(miniPiece(si, NEUTRAL, 44)); nq.appendChild(b); });
-  $('nextq').hidden = !(G.st.next && G.st.next.length);
-  $('nextq').title = 'The next pieces. The first one replaces the piece that is played.';
+  renderNext();
+}
+// The 3 choices the next player will have: the 2 pieces left in the tray + the new piece.
+// Exact as soon as the player to move picks a piece (for the rival, we know it from their live hand).
+function renderNext() {
+  const nq = $('nq'); const nx = G.st.next && G.st.next[0];
+  if (nx == null || G.st.over) { $('nextq').hidden = true; return; } $('nextq').hidden = false;
+  const mover = G.st.turn, receiver = 1 - mover; const L = G.look[receiver];
+  const chosen = isHuman(mover) ? (drag ? drag.ti : G.sel) : (G.peek ? G.peek.ti : null);
+  const who = G.mode === 'local' ? esc(G.names[receiver]) + "'s choices" : receiver === G.me ? 'Your next choices' : "Rival's next choices";
+  $('nqLabel').innerHTML = who;
+  nq.innerHTML = '';
+  const box = (si, cls) => { const b = document.createElement('div'); b.className = 'nx' + (cls ? ' ' + cls : ''); if (si != null) b.appendChild(miniPiece(si, L.skin, 64)); return b; };
+  if (chosen != null && G.st.tray[chosen] != null) G.st.tray.forEach((si, ti) => { if (ti !== chosen) nq.appendChild(box(si)); });
+  else { const b = box(null, 'tbd'); b.textContent = '+2 left'; nq.appendChild(b); }
+  const n = box(nx, 'new'); nq.appendChild(n);
 }
 function status(h) { $('status').innerHTML = h; }
 function renderAll() { renderBoard(); renderPlayers(); renderTray(); renderPeek(); }
@@ -719,13 +728,8 @@ function cellCenter(k) { const g = $('grid').getBoundingClientRect(), f = $('fx'
 async function animate(before, mv) {
   const g = G, L = g.look[mv.p]; const placed = before.slice(); shapeCells(mv.si, mv.r, mv.c).forEach(k => placed[k] = mv.p + 1);
   g.seq = (g.seq || 0) + 1; g.busy = true; g.peek = null; renderPeek(); renderBoard(placed); SND.place(); floatPts(mv.si, mv.r, mv.c, '+' + mv.gain, L.skin); renderPlayers(); renderTray();
-  if (mv.cleared.length) { reaction(mv, L); SND.clear(mv.lines, mv.combo); await sleep(90); mv.cleared.forEach(k => cells[k].classList.add('flash')); fx.burst(L.blast, mv.cleared.map(cellCenter), L.skin); botBanter(mv); await sleep(360); }
+  if (mv.cleared.length) { reaction(mv, L); SND.clear(mv.lines, mv.combo); await sleep(90); mv.cleared.forEach(k => cells[k].classList.add('flash')); fx.burst(L.blast, mv.cleared.map(cellCenter), L.skin); await sleep(360); }
   if (G !== g) return false; g.busy = false; renderBoard(); return true;
-}
-function botBanter(mv) {
-  if (G.mode !== 'solo') return;
-  if (mv.p === 1 && Math.random() < .4) bubble(1, { k: ['fire', 'cool', 'lol'][Math.floor(Math.random() * 3)] });
-  else if (mv.p === 0 && (mv.lines > 1 || mv.combo > 1) && Math.random() < .5) bubble(1, { k: ['wow', 'cry', 'wp'][Math.floor(Math.random() * 3)] });
 }
 function myMove(ti, r, c) {
   if (G.mode === 'online') {
@@ -834,34 +838,27 @@ function sendPeek(ti, fr, fc) {
   if (wait <= 0) { peekLast = Date.now(); NET.ready && NET.ws.send(JSON.stringify(peekPending)); peekPending = null; }
   else if (!peekTimer) peekTimer = setTimeout(() => { peekTimer = null; if (peekPending) { peekLast = Date.now(); NET.ready && NET.ws.send(JSON.stringify(peekPending)); peekPending = null; } }, wait);
 }
-NET.on('peek', m => { if (!G || G.mode !== 'online' || G.st.over || G.st.turn === G.me) return; G.peek = m; renderPeek(); });
+NET.on('peek', m => { if (!G || G.mode !== 'online' || G.st.over || G.st.turn === G.me) return; const ch = !G.peek || G.peek.ti !== m.ti; G.peek = m; renderPeek(); if (ch) renderNext(); });
 
-// ---------- chat and stickers ----------
+// ---------- chat ----------
 function sysMsg(t) { const d = document.createElement('div'); d.className = 'sys'; d.textContent = t; $('log').appendChild(d); }
-function bubble(p, m) {
+function bubble(p, text) {
   if (!G) return; const k = p === G.me ? 0 : 1; const panel = $('p' + k);
   panel.querySelectorAll('.bub').forEach(b => b.remove());
-  const b = document.createElement('div'); b.className = 'bub';
-  if (m.k) { const it = STICKERS[m.k]; b.innerHTML = `<div class="e">${it ? it.e : ''}</div>${esc(it ? it.name : '')}`; } else b.textContent = m.text;
+  const b = document.createElement('div'); b.className = 'bub'; b.textContent = text;
   panel.appendChild(b); setTimeout(() => b.remove(), 3300);
 }
 NET.on('chat', m => {
-  if (!G || G.mode !== 'online') return; if (G.muted && m.from !== G.me) return;
+  if (!G || G.mode !== 'online' || !m.text) return; if (G.muted && m.from !== G.me) return;
   const d = document.createElement('div'); d.className = 'm' + (m.from === G.me ? ' me' : '');
-  const it = m.k && STICKERS[m.k];
-  d.innerHTML = `<b>${esc(G.names[m.from])}</b>` + (it ? `<span class="e">${it.e}</span> ${esc(it.name)}` : esc(m.text));
+  d.innerHTML = `<b>${esc(G.names[m.from])}</b>` + esc(m.text);
   const log = $('log'); log.appendChild(d); while (log.children.length > 60) log.firstChild.remove(); log.scrollTop = log.scrollHeight;
-  bubble(m.from, m); if (m.from !== G.me) SND.tone(990, .06, { vol: .05 });
+  bubble(m.from, m.text); if (m.from !== G.me) SND.tone(990, .06, { vol: .05 });
 });
 NET.on('chat_slow', () => toast('Slow down a little.'));
 NET.on('chat_blocked', () => { toast('Message blocked. Be nice!'); sysMsg('Your message was blocked.'); });
 $('cin').onsubmit = e => { e.preventDefault(); const t = $('ctext').value.trim(); if (!t || !G) return; NET.send({ t: 'chat', text: t }); $('ctext').value = ''; };
 $('mute').onclick = () => { if (!G) return; G.muted = !G.muted; $('mute').textContent = G.muted ? 'Unmute' : 'Mute'; sysMsg(G.muted ? 'Rival muted.' : 'Rival unmuted.'); };
-$('stkBtn').onclick = () => {
-  const box = $('stk'); box.hidden = !box.hidden; if (box.hidden) return;
-  box.innerHTML = Object.entries(STICKERS).map(([k, it]) => { const ok = owns('sticker', k); return `<button type="button" data-k="${k}" ${ok ? '' : 'disabled title="Shop → Stickers"'}><span>${it.e}</span>${esc(it.name)}${ok ? '' : ' 🔒'}</button>`; }).join('');
-  box.querySelectorAll('button[data-k]').forEach(b => b.onclick = () => { NET.send({ t: 'sticker', k: b.dataset.k }); box.hidden = true; });
-};
 
 // ---------- live game messages ----------
 NET.on('hello', m => {
@@ -918,12 +915,12 @@ function previewAt(si, t) { if (!t) { renderBoard(); return; } const res = E.app
 const canAct = () => G && !G.st.over && !G.busy && isHuman(G.st.turn);
 $('tray').addEventListener('pointerdown', e => { const s = e.target.closest('.slot'); if (!s || !canAct()) return; const ti = +s.dataset.ti; e.preventDefault(); drag = { ti, si: G.st.tray[ti], x0: e.clientX, y0: e.clientY, moved: false, touch: e.pointerType !== 'mouse', t: null, slot: s }; sendPeek(ti, null, null); });
 window.addEventListener('pointermove', e => { if (!drag) return;
-  if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 6) { drag.moved = true; drag.size = buildFloat(drag.si); floatEl.hidden = false; G.sel = null; document.querySelectorAll('.slot.sel').forEach(x => x.classList.remove('sel')); drag.slot.classList.add('drag'); }
+  if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 6) { drag.moved = true; renderNext(); drag.size = buildFloat(drag.si); floatEl.hidden = false; G.sel = null; document.querySelectorAll('.slot.sel').forEach(x => x.classList.remove('sel')); drag.slot.classList.add('drag'); }
   if (!drag.moved) return; const left = e.clientX - drag.size.w / 2, top = drag.touch ? e.clientY - drag.size.h - 48 : e.clientY - drag.size.h / 2;
   floatEl.style.transform = `translate(${left}px,${top}px)`; const tg = targetFrom(left, top, drag.si); const t = tg.best; sendPeek(drag.ti, tg.fr, tg.fc);
   const key = t ? t.r + ',' + t.c : ''; drag.t = t; if (key !== lastKey) { lastKey = key; previewAt(drag.si, t); if (t) SND.tone(520, .03, { vol: .025 }); } });
 function endDrag(cancel) { if (!drag) return; const d = drag; drag = null; lastKey = ''; floatEl.hidden = true; if (d.slot) d.slot.classList.remove('drag');
-  if (d.moved) { if (!cancel && d.t && canAct()) myMove(d.ti, d.t.r, d.t.c); else { if (G) renderBoard(); sendPeek(null, null, null); } }
+  if (d.moved) { if (!cancel && d.t && canAct()) myMove(d.ti, d.t.r, d.t.c); else { if (G) { renderBoard(); renderNext(); } sendPeek(null, null, null); } }
   else if (!cancel && G) { G.sel = G.sel === d.ti ? null : d.ti; sendPeek(G.sel, null, null); renderTray(); status(G.sel != null ? 'Now click where to place it.' : turnHint()); } }
 window.addEventListener('pointerup', () => endDrag(false)); window.addEventListener('pointercancel', () => endDrag(true));
 function centered(k, si) { const d = DIM[si]; const r = Math.floor(k / N) - Math.floor((d.h - 1) / 2), c = k % N - Math.floor((d.w - 1) / 2); if (E.fits(G.st.board, si, r, c)) return { r, c };

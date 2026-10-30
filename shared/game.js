@@ -52,10 +52,10 @@
   }
   function canPlace(b, si) { const d = DIM[si]; for (let r = 0; r <= N - d.h; r++) for (let c = 0; c <= N - d.w; c++) if (fits(b, si, r, c)) return true; return false; }
 
-  // A new game. `draw` is the shared piece stream; both players see the same tray,
-  // and the next 3 pieces of the stream are visible in `next` (the first one replaces the piece just played).
+  // A new game. `draw` is the shared piece stream; both players see the same tray.
+  // `next` holds the one piece that will replace the piece played, so you can see the three choices you leave your rival.
   function newState(seed) {
-    const draw = rng(seed); const tray = [drawPiece(draw), drawPiece(draw), drawPiece(draw)]; const next = [drawPiece(draw), drawPiece(draw), drawPiece(draw)];
+    const draw = rng(seed); const tray = [drawPiece(draw), drawPiece(draw), drawPiece(draw)]; const next = [drawPiece(draw)];
     return { seed, draw, board: Array(N * N).fill(0), tray, next, scores: [0, 0], combo: [0, 0], best: [0, 0], turn: 0, over: false, stuck: null, log: [] };
   }
 
@@ -65,7 +65,7 @@
     const si = st.tray[ti]; if (si == null || !Number.isInteger(r) || !Number.isInteger(c) || !fits(st.board, si, r, c)) return null;
     const p = st.turn; const res = apply(st.board, si, r, c, p + 1, st.combo[p]);
     st.scores[p] += res.gain; st.combo[p] = res.combo; st.best[p] = Math.max(st.best[p], res.combo);
-    st.board = res.after; st.tray = st.tray.slice(); st.tray[ti] = st.next[0]; st.next = st.next.slice(1).concat([drawPiece(st.draw)]); st.turn = 1 - p;
+    st.board = res.after; st.tray = st.tray.slice(); st.tray[ti] = st.next[0]; st.next = [drawPiece(st.draw)]; st.turn = 1 - p;
     const mv = { p, ti, si, r, c, gain: res.gain, lines: res.lines, combo: res.combo, cleared: res.cleared };
     st.log.push({ ti, r, c });
     if (!moves(st.board, st.tray).length) { st.over = true; st.stuck = st.turn; st.scores[1 - st.turn] += BLOCK_BONUS; }

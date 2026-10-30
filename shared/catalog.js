@@ -170,29 +170,17 @@
     voidt: { name: 'Void', pack: 'voidBundle', bg: '#030206', glow: '#9D5BFF', hex: '#6A4BB0', rar: 'legendary' }
   };
 
-  // ---- Chat stickers ----
-  const K = (name, e, price, extra) => Object.assign({ name, e, price }, extra || {});
-  const STICKERS = {
-    gg: K('GG', '🤝', 0), wp: K('Well played', '👏', 0), lol: K('LOL', '😂', 0), wow: K('Wow', '😮', 0), oops: K('Oops', '😅', 0), hi: K('Hi', '👋', 0),
-    fire: K('On fire', '🔥', 150), cool: K('Too easy', '😎', 150), think: K('Hmm', '🤔', 150), cry: K('Why', '😭', 200), dead: K('Dead', '💀', 200), eyes: K('I see you', '👀', 200),
-    sleep: K('Wake up', '😴', 300), rage: K('Grr', '😤', 300), clown: K('Clown', '🤡', 300), pray: K('Please', '🙏', 300),
-    crown: K('King', '👑', 500, { rar: 'epic' }), rocket: K('To the moon', '🚀', 500, { rar: 'epic' }), brain: K('Big brain', '🧠', 600, { rar: 'epic' }), money: K('Money', '💸', 600, { rar: 'epic' }),
-    trophy: K('Champion', '🏆', 1500, { rar: 'legendary' }), goat: K('GOAT', '🐐', 2500, { rar: 'legendary' }),
-    diamond: K('Diamond', '💎', 0, { plus: true }), alien: K('Not human', '👽', 0, { plus: true }), unicorn: K('Magic', '🦄', 0, { plus: true }),
-    phoenix: K('Reborn', '☄️', 0, { pack: 'phoenixPack', rar: 'mythic' }), voidk: K('Into the void', '🕳️', 0, { pack: 'voidBundle', rar: 'legendary' })
-  };
-
   // Bundles bought with Blockcoins (cheaper than buying items one by one; some items exist only in a bundle).
   const BUNDLES = {
-    neonNight: { name: 'Neon night', price: 1100, items: [['skin', 'neoncyan'], ['glow', 'cyan'], ['blast', 'shock'], ['sticker', 'cool']] },
-    royalCourt: { name: 'Royal court', price: 2600, items: [['avatar', 'crown'], ['sticker', 'crown'], ['react', 'boss']] },
-    voidBundle: { name: 'Void', price: 4500, items: [['skin', 'voidk'], ['glow', 'voidg'], ['avatar', 'voidav'], ['theme', 'voidt'], ['sticker', 'voidk']], exclusive: true }
+    neonNight: { name: 'Neon night', price: 1000, items: [['skin', 'neoncyan'], ['glow', 'cyan'], ['blast', 'shock']] },
+    royalCourt: { name: 'Royal court', price: 2400, items: [['avatar', 'crown'], ['react', 'boss']] },
+    voidBundle: { name: 'Void', price: 4500, items: [['skin', 'voidk'], ['glow', 'voidg'], ['avatar', 'voidav'], ['theme', 'voidt']], exclusive: true }
   };
 
   const CATS = { skin: { label: 'Blocks', data: SKINS }, glow: { label: 'Glow', data: GLOWS }, blast: { label: 'Blast', data: BLASTS }, react: { label: 'Reactions', data: REACTS },
-    avatar: { label: 'Avatars', data: AVATARS }, sticker: { label: 'Stickers', data: STICKERS, multi: true }, theme: { label: 'Lobby', data: THEMES } };
-  const DEFAULT_OWNED = { skin: ['sapphire', 'mint'], glow: ['none'], blast: ['spark'], react: ['classic'], avatar: ['block', 'smile'], sticker: ['gg', 'wp', 'lol', 'wow', 'oops', 'hi'], theme: ['night'] };
-  const DEFAULT_EQ = { skin: 'sapphire', glow: 'none', blast: 'spark', react: 'classic', avatar: 'block', sticker: 'gg', theme: 'night' };
+    avatar: { label: 'Avatars', data: AVATARS }, theme: { label: 'Lobby', data: THEMES } };
+  const DEFAULT_OWNED = { skin: ['sapphire', 'mint'], glow: ['none'], blast: ['spark'], react: ['classic'], avatar: ['block', 'smile'], theme: ['night'] };
+  const DEFAULT_EQ = { skin: 'sapphire', glow: 'none', blast: 'spark', react: 'classic', avatar: 'block', theme: 'night' };
 
   // Rarity, Fortnite style. Explicit on special items, otherwise from the price.
   const RARITY = { common: { name: 'Common', c: '#9AA5B8' }, rare: { name: 'Rare', c: '#3E8BFF' }, epic: { name: 'Epic', c: '#B26BFF' }, legendary: { name: 'Legendary', c: '#FF9B3D' }, mythic: { name: 'Mythic', c: '#FFD84A' }, plus: { name: 'Plus', c: '#FFC94A' } };
@@ -227,7 +215,7 @@
   const REFERRAL = { sharer: 150, newcomer: 100, perDay: 10, firstFriendGame: 50 };
   // Subscribing to Plus: ranked wins give double Elo for a few days (losses unchanged).
   const BOOST_DAYS = { month: 3, year: 7 };
-  const CLOCK_MS = 10 * 60 * 1000;
+  const CLOCK_MS = 5 * 60 * 1000;
 
   const LEVELS = {
     easy: { name: 'Rookie', elo: 800, win: 10, draw: 4, loss: 1, desc: 'Plays almost at random. Learn the rules.', col: '#1FCB9C' },
@@ -251,10 +239,10 @@
     starter: { kind: 'starter', coins: 800, cents: 299, label: 'Starter pack', once: true, skins: ['stripes'], glows: ['cyan'] },
     plusMonth: { kind: 'plus', cents: 499, interval: 'month', label: 'Blockmate Plus · monthly' },
     plusYear: { kind: 'plus', cents: 3999, interval: 'year', label: 'Blockmate Plus · yearly' },
-    phoenixPack: { kind: 'bundle', cents: 499, label: 'Phoenix pack', coins: 1000, once: true, items: [['skin', 'phoenix'], ['glow', 'phoenixg'], ['blast', 'phoenixb'], ['react', 'phoenixr'], ['avatar', 'phoenix'], ['theme', 'phoenixt'], ['sticker', 'phoenix']] }
+    phoenixPack: { kind: 'bundle', cents: 499, label: 'Phoenix pack', coins: 1000, once: true, items: [['skin', 'phoenix'], ['glow', 'phoenixg'], ['blast', 'phoenixb'], ['react', 'phoenixr'], ['avatar', 'phoenix'], ['theme', 'phoenixt']] }
   };
   const euro = c => (c / 100).toFixed(2).replace('.', ',') + ' €';
 
   const tierOf = r => { let t = TIERS[0]; for (const x of TIERS) if (r >= x[0]) t = x; return t; };
-  return { mix, S, SKINS, RIVAL, GLOWS, BLASTS, REACTS, AVATARS, SPRITES, THEMES, STICKERS, BUNDLES, RARITY, rarityOf, dailyShop, priceOf, SIGNUP_PRIZES, REFERRAL, BOOST_DAYS, CLOCK_MS, CATS, DEFAULT_OWNED, DEFAULT_EQ, LEVELS, PRACTICE, ONLINE, STAKES, TIERS, COUNTRIES, DAILY, PRODUCTS, euro, tierOf };
+  return { mix, S, SKINS, RIVAL, GLOWS, BLASTS, REACTS, AVATARS, SPRITES, THEMES, BUNDLES, RARITY, rarityOf, dailyShop, priceOf, SIGNUP_PRIZES, REFERRAL, BOOST_DAYS, CLOCK_MS, CATS, DEFAULT_OWNED, DEFAULT_EQ, LEVELS, PRACTICE, ONLINE, STAKES, TIERS, COUNTRIES, DAILY, PRODUCTS, euro, tierOf };
 });

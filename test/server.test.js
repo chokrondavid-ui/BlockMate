@@ -202,18 +202,18 @@ test('signup prize, promo code once, coin bundle, daily deal price', async () =>
   const c0 = r.me.coins; const p = await a.call('/api/promo', { code: 'parnassa' }); assert.equal(p.me.coins, c0 + 1000);
   assert.equal((await a.call('/api/promo', { code: 'PARNASSA' }))._status, 400, 'once per account');
   assert.equal((await a.call('/api/promo', { code: 'NOPE' }))._status, 400);
-  const b = await a.call('/api/bundle', { id: 'neonNight' }); assert.equal(b._status, 200); assert.ok(b.me.owned.sticker.includes('cool'));
+  const b = await a.call('/api/bundle', { id: 'neonNight' }); assert.equal(b._status, 200); assert.ok(b.me.owned.skin.includes('neoncyan'));
   assert.equal((await a.call('/api/buy', { cat: 'skin', key: 'phoenix' }))._status, 400, 'pack-only item');
   const day = b.me.shopDay; const d = C.dailyShop(day); const [cat, key] = d.deal;
   if (!b.me.owned[cat].includes(key)) { const before = b.me.coins; const bought = await a.call('/api/buy', { cat, key }); if (bought._status === 200) assert.equal(bought.me.coins, before - C.priceOf(cat, key, day)); }
 });
 
-test('online: clocks, peek relay, filtered chat, stickers, first friend game bonus, referral', async () => {
+test('online: clocks, peek relay, filtered chat, first friend game bonus, referral', async () => {
   const a = client(), b = client(); await a.call('/api/me'); const mb = (await b.call('/api/me')).me;
   const A = socket(a.token()), B = socket(b.token()); await A.open; await B.open; await A.next('hello'); await B.next('hello');
   A.send({ t: 'room_create', stake: 0 }); const room = await A.next('room');
   B.send({ t: 'room_join', code: room.code }); const [sa, sb] = await Promise.all([A.next('start'), B.next('start')]);
-  assert.deepEqual(sa.state.clocks.map(x => x > 590000), [true, true]); assert.equal(sa.state.next.length, 3);
+  assert.deepEqual(sa.state.clocks.map(x => x > 290000 && x <= 300000), [true, true]); assert.equal(sa.state.next.length, 1);
   const byIdx = sa.you === 0 ? [A, B] : [B, A];
   let state = sa.state;
   byIdx[state.turn].send({ t: 'peek', ti: 1, fr: 2.4, fc: 3.1 }); const pk = await byIdx[1 - state.turn].next('peek'); assert.equal(pk.ti, 1);
@@ -221,9 +221,6 @@ test('online: clocks, peek relay, filtered chat, stickers, first friend game bon
   await new Promise(r => setTimeout(r, 750));
   A.send({ t: 'chat', text: 'je vais te tuer' }); await A.next('chat_blocked');
   await new Promise(r => setTimeout(r, 750));
-  B.send({ t: 'sticker', k: 'gg' }); assert.equal((await A.next('chat')).k, 'gg'); await B.next('chat');
-  await new Promise(r => setTimeout(r, 750));
-  B.send({ t: 'sticker', k: 'goat' }); await B.next('error');
   for (let n = 0; n < 8 && !state.over; n++) { const m = G.moves(state.board, state.tray)[0]; byIdx[state.turn].send({ t: 'move', ti: m.ti, r: m.r, c: m.c }); const [x] = await Promise.all([A.next('move'), B.next('move')]); state = x.state; }
   assert.ok(state.clocks[0] <= C.CLOCK_MS);
   A.send({ t: 'resign' }); const [ea, eb] = await Promise.all([A.next('end'), B.next('end')]);

@@ -197,14 +197,9 @@ function Online({ accounts, db, log, track }) {
         const fr = typeof msg.fr === 'number' && isFinite(msg.fr) ? Math.max(-6, Math.min(14, msg.fr)) : null, fc = typeof msg.fc === 'number' && isFinite(msg.fc) ? Math.max(-6, Math.min(14, msg.fc)) : null;
         send(m.players[1 - p], { t: 'peek', ti, fr, fc }); return;
       }
-      case 'chat': case 'sticker': {
+      case 'chat': {
         if (!m) return; const t = Date.now();
         if (t - m.lastChat[p] > 10000) m.chatN[p] = 0; if (++m.chatN[p] > 6 || t - m.lastChat[p] < 700) return send(uid, { t: 'chat_slow' }); m.lastChat[p] = t;
-        if (msg.t === 'sticker') {
-          const k = String(msg.k || ''); const it = C.STICKERS[k]; const u = accounts.get(uid); if (!it || !u) return;
-          if (it.plus ? !accounts.isPlus(u) : !u.owned.sticker.includes(k)) return err(uid, 'You don\'t own this sticker yet.');
-          for (const id of m.players) send(id, { t: 'chat', from: p, k }); return;
-        }
         const r = clean(msg.text); if (r.blocked) return send(uid, { t: 'chat_blocked' }); if (!r.text) return;
         for (const id of m.players) send(id, { t: 'chat', from: p, text: r.text, masked: r.changed }); return;
       }
