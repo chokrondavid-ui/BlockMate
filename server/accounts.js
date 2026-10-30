@@ -134,7 +134,8 @@ function Accounts(db) {
       if (!p || (p.until && Date.now() > p.until)) return { error: 'This code does not exist.' };
       if (q.promoUsed.get(code, u.id)) return { error: 'You already used this code.' };
       q.promoUse.run(code, u.id, Date.now()); if (p.coins) u.coins += p.coins; if (p.items) self.giveItems(u, p.items);
-      self.save(u, ['coins', 'owned']); return { coins: p.coins || 0 };
+      if (p.plusDays) u.plus_until = Math.max(u.plus_until, now()) + p.plusDays * 864e5;
+      self.save(u, ['coins', 'owned', 'plus_until']); return { coins: p.coins || 0, plusDays: p.plusDays || 0 };
     },
     claimDaily(u) {
       const day = parisDay(); if (u.daily_last === day) return { error: 'Already claimed today.' };

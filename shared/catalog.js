@@ -217,13 +217,15 @@
   const BOOST_DAYS = { month: 3, year: 7 };
   const CLOCK_MS = 5 * 60 * 1000;
 
+  // Coins at stake in Ranked: the harder the bot, the more you win and the more you can lose.
+  // Lost coins only come from Blockcoins won by playing, never from bought ones.
   const LEVELS = {
-    easy: { name: 'Rookie', elo: 800, win: 10, draw: 4, loss: 1, desc: 'Plays almost at random. Learn the rules.', col: '#1FCB9C' },
-    medium: { name: 'Pro', elo: 1200, win: 25, draw: 10, loss: 2, desc: 'Always grabs the most points it can.', col: '#3E8BFF' },
-    hard: { name: 'Master', elo: 1600, win: 50, draw: 20, loss: 5, desc: 'Reads your next move and blocks you.', col: '#B26BFF' }
+    easy: { name: 'Rookie', elo: 800, win: 10, draw: 3, loss: 0, desc: 'Plays almost at random. Learn the rules.', col: '#1FCB9C' },
+    medium: { name: 'Pro', elo: 1200, win: 25, draw: 5, loss: -10, desc: 'Always grabs the most points it can.', col: '#3E8BFF' },
+    hard: { name: 'Master', elo: 1600, win: 50, draw: 10, loss: -25, desc: 'Reads your next move and blocks you.', col: '#B26BFF' }
   };
   const PRACTICE = 0.25;
-  const ONLINE = { win: 30, draw: 10, loss: 3 };
+  const ONLINE = { win: 30, draw: 5, loss: -10 };
   const STAKES = [0, 25, 50, 100];
   const TIERS = [[0, 'Bronze', '#D38A4E', 'B'], [1000, 'Silver', '#CBD3EA', 'S'], [1200, 'Gold', '#FFC94A', 'G'], [1400, 'Platinum', '#5FE8D4', 'P'], [1600, 'Diamond', '#7FB7FF', 'D'], [1800, 'Master', '#C98BFF', 'M']];
   const COUNTRIES = { FR: 'France', BE: 'Belgium', CH: 'Switzerland', CA: 'Canada', US: 'United States', GB: 'United Kingdom', ES: 'Spain', IT: 'Italy', DE: 'Germany', MA: 'Morocco', DZ: 'Algeria', TN: 'Tunisia', SN: 'Senegal', BR: 'Brazil', IN: 'India', JP: 'Japan' };

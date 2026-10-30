@@ -229,3 +229,16 @@ test('online: clocks, peek relay, filtered chat, first friend game bonus, referr
   assert.equal(eb.bonus, C.REFERRAL.firstFriendGame + C.REFERRAL.newcomer); assert.equal(ea.bonus, C.REFERRAL.firstFriendGame + C.REFERRAL.sharer);
   A.ws.close(); B.ws.close();
 });
+
+test('ranked risk: losing to Master costs earned coins, never bought ones; HANNAH gives Plus', async () => {
+  const a = client(); const me0 = (await a.call('/api/me')).me;
+  const s = await a.call('/api/solo/start', { level: 'hard', ranked: true }); assert.equal(s._status, 200);
+  const st = G.newState(s.seed), br = G.rng(G.botSeed(s.seed)), hm = [];
+  while (!st.over) { if (st.turn === 0) { const m = G.moves(st.board, st.tray)[0]; if (!m) break; hm.push({ ti: m.ti, r: m.r, c: m.c }); G.play(st, m.ti, m.r, m.c); } else { const m = G.botMove(st, 'hard', br); G.play(st, m.ti, m.r, m.c); } }
+  const f = await a.call('/api/solo/finish', { id: s.id, moves: hm, resigned: true });
+  assert.equal(f.coins, C.LEVELS.hard.loss); assert.equal(f.me.coins, me0.coins + C.LEVELS.hard.loss); assert.ok(f.elo < 0);
+  // With only bought coins, Master ranked is refused.
+  const b = client(); const mb = (await b.call('/api/me')).me; await b.call('/api/buy', { cat: 'skin', key: 'candy' }); // spend earned coins
+  const left = (await b.call('/api/me')).me; if (left.earned < 25) assert.equal((await b.call('/api/solo/start', { level: 'hard', ranked: true }))._status, 400);
+  const h = await b.call('/api/promo', { code: 'hannah' }); assert.equal(h.me.plus, true); assert.equal(h.plusDays, 36500);
+});

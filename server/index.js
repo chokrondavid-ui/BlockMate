@@ -83,7 +83,8 @@ function createServer(opts = {}) {
   const soloOpen = db.prepare('SELECT * FROM solo WHERE user_id=? AND ranked=1 AND done=0');
   function soloReward(u, level, ranked, result, best, score) {
     const L = C.LEVELS[level]; const out = { elo: 0, coins: 0, record: false };
-    let coins = result === 1 ? L.win : result === 0.5 ? L.draw : L.loss; if (!ranked) coins = Math.round(coins * C.PRACTICE);
+    let coins = result === 1 ? L.win : result === 0.5 ? L.draw : L.loss; if (!ranked) coins = Math.max(0, Math.round(coins * C.PRACTICE));
+    if (coins < 0) coins = -Math.min(-coins, accounts.earned(u)); // never take bought coins
     u.coins += coins; out.coins = coins;
     if (ranked) { out.elo = G.eloDelta(u.elo, L.elo, result); if (out.elo > 0 && accounts.boosted(u)) { out.elo *= 2; out.boost = true; } u.elo = Math.max(100, u.elo + out.elo); }
     u.st.games++; if (result === 1) u.st.wins++; else if (result === 0) u.st.losses++; else u.st.draws++;
@@ -176,6 +177,8 @@ function createServer(opts = {}) {
       case '/api/solo/start': {
         const level = data.level; if (!C.LEVELS[level]) return fail('Unknown level.');
         const ranked = data.ranked ? 1 : 0; if (ranked) forfeitOpen(u);
+        const risk = -C.LEVELS[level].loss; const fresh = accounts.get(u.id);
+        if (ranked && risk > 0 && accounts.earned(fresh) < risk) return fail('You need ' + risk + ' Blockcoins won by playing to risk a Ranked game against ' + C.LEVELS[level].name + '. Win some against Rookie first, or play Practice.');
         const gid = id('s_'); const seed = crypto.randomBytes(4).readUInt32BE(0);
         soloIns.run(gid, u.id, level, ranked, seed, Date.now()); return ok({ id: gid, seed });
       }

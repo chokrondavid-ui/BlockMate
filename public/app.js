@@ -60,7 +60,10 @@ function applyTheme() {
   document.body.style.backgroundColor = t.bg;
 }
 function skinOf(k, custom) { const s = SKINS[k] || SKINS.sapphire; if (s.custom) { const b = custom || P.custom || '#00D1B2'; return Object.assign({}, s, { b, h: mix(b, '#ffffff', .55), l: mix(b, '#000000', .45) }); } return s; }
-const reward = (lvl, res, ranked) => { const L = LEVELS[lvl]; const b = res === 1 ? L.win : res === .5 ? L.draw : L.loss; return ranked ? b : Math.round(b * C.PRACTICE); };
+const reward = (lvl, res, ranked) => { const L = LEVELS[lvl]; const b = res === 1 ? L.win : res === .5 ? L.draw : L.loss; return ranked ? b : Math.max(0, Math.round(b * C.PRACTICE)); };
+const sgn = n => (n > 0 ? '+' : n < 0 ? '−' : '±') + Math.abs(n);
+// What a Ranked game can win or lose, before playing it.
+const stakesOf = (oppElo, coinsWin, coinsLoss) => ({ eloWin: E.eloDelta(P.elo, oppElo, 1) * (P.boostUntil ? 2 : 1), eloLoss: E.eloDelta(P.elo, oppElo, 0), coinsWin, coinsLoss: -Math.min(-coinsLoss, P.earned) });
 
 // ---------- sound and music ----------
 const SND = { on: store.get('bm-sound', 'on') !== 'off', ctx: null,
@@ -187,11 +190,12 @@ function viewPlay(v) {
     <div class="ident">${avatarHtml(P.eq.avatar, 48)}<div class="grow" style="min-width:0"><div class="nm">${esc(P.name)}</div><div class="muted">${embSvg(P.elo, 16)} <span style="color:${t[2]};font-weight:700">${t[1]}</span> · <span class="num">${P.elo}</span> Elo${P.plus ? ' · <span style="color:var(--gold)">Plus</span>' : ''}${P.boostUntil ? ` <span class="boostb" title="Ranked wins give double Elo until ${new Date(P.boostUntil).toLocaleString()}">×2 Elo boost</span>` : ''}</div></div><button class="btn sm" type="button" id="editP">${P.guest ? 'Sign up' : 'Edit profile'}</button></div>
     <div class="panel"><div class="ph"><h2>Solo vs bots</h2><div class="seg" role="group" aria-label="Solo mode"><button type="button" data-rk="1" aria-pressed="${soloRanked}">Ranked</button><button type="button" data-rk="0" aria-pressed="${!soloRanked}">Practice</button></div></div>
       <div class="modes">${Object.entries(LEVELS).map(([k, l]) => `<button class="mode" type="button" data-lvl="${k}" aria-pressed="${k === soloLvl}"><span class="art" aria-hidden="true">${artHtml(k)}</span><span class="shade"></span>
-        <span class="tl"><span class="badge or num">Win +${reward(k, 1, soloRanked)}</span>${P.rec[k] ? `<span class="badge dk num">Best ${P.rec[k]}</span>` : ''}</span>
-        <span class="bt"><b>${l.name}</b><span class="num">${l.elo} Elo bot</span><em>${l.desc}</em></span></button>`).join('')}</div>
-      <p class="note" style="margin:0">${soloRanked ? 'Ranked: your Elo moves after every game, and harder bots pay more Blockcoins.' : 'Practice: your Elo never changes, and you earn a quarter of the Ranked reward.'}</p></div>
+        <span class="tl"><span class="badge or num">Win +${reward(k, 1, soloRanked)}</span>${soloRanked && l.loss ? `<span class="badge rd num">Loss ${sgn(l.loss)}</span>` : ''}${P.rec[k] ? `<span class="badge dk num">Best ${P.rec[k]}</span>` : ''}</span>
+        <span class="bt"><b>${l.name}</b><span class="num">${soloRanked ? (() => { const z = stakesOf(l.elo, l.win, l.loss); return `Elo: win ${sgn(z.eloWin)} · loss ${sgn(z.eloLoss)}`; })() : l.elo + ' Elo bot'}</span><em>${l.desc}</em></span></button>`).join('')}</div>
+      <p class="note" style="margin:0">${soloRanked ? 'Ranked: the harder the bot, the more Blockcoins you win, and the more you lose if you lose. Elo works like chess: beating a stronger bot earns a lot, losing to a weaker one costs a lot. Lost coins only come from coins won by playing, never from bought ones.' : 'Practice: no risk. Your Elo never changes, you never lose coins, and you earn a quarter of the Ranked reward.'}</p></div>
     <button class="btn main big" type="button" id="playSolo">Play ${soloRanked ? 'ranked' : 'practice'} · ${L.name}</button>
     <div class="actions3"><button class="btn" type="button" id="online">Online ranked<em class="badge or">Live</em></button><button class="btn" type="button" id="toFriends">Challenge a friend</button><button class="btn" type="button" id="localDuel">Duel on this screen</button></div>
+    ${(() => { const z = stakesOf(P.elo, C.ONLINE.win, C.ONLINE.loss); return `<p class="note" style="margin:0;text-align:center">Online ranked vs a player of your level: <b class="num" style="color:var(--green)">win ${sgn(z.eloWin)} Elo · ${sgn(z.coinsWin)} coins</b> · <b class="num" style="color:var(--red)">loss ${sgn(z.eloLoss)} Elo · ${sgn(z.coinsLoss)} coins</b></p>`; })()}
   </div>
   <div class="stack">
     ${d.ready ? `<div class="daily"><div class="ph" style="position:relative;z-index:1"><h3>Daily reward</h3><span class="badge or">Day ${d.day}/7</span></div>
@@ -209,6 +213,8 @@ function viewPlay(v) {
   v.querySelectorAll('[data-rk]').forEach(b => b.onclick = () => { soloRanked = b.dataset.rk === '1'; renderView(); });
   v.querySelectorAll('[data-lvl]').forEach(b => { b.onclick = () => { soloLvl = b.dataset.lvl; store.set('bm-lvl', soloLvl); SND.tick(); renderView(); }; b.ondblclick = () => startSolo(b.dataset.lvl, soloRanked); });
   v.querySelector('#playSolo').onclick = () => startSolo(soloLvl, soloRanked);
+  const oz = stakesOf(P.elo, C.ONLINE.win, C.ONLINE.loss);
+  v.querySelector('#online').title = `Against a player of your level: win ${sgn(oz.eloWin)} Elo and ${sgn(oz.coinsWin)} coins, lose ${sgn(oz.eloLoss)} Elo and ${sgn(oz.coinsLoss)} coins`;
   v.querySelector('#localDuel').onclick = () => startLocal();
   v.querySelector('#online').onclick = () => queueSheet();
   v.querySelector('#toFriends').onclick = () => setTab('friends'); v.querySelector('#seeAll').onclick = () => setTab('rank');
@@ -221,7 +227,7 @@ function queueSheet() {
   if (!NET.send({ t: 'queue' })) return;
   const t0 = Date.now();
   openSheet(`<h3>Finding a rival</h3><div class="spin" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p>Matching you with a player near <b class="num">${P.elo}</b> Elo.</p><div class="big num" id="qt">0:00</div>
-    <p class="note" id="qhint" style="text-align:center">Ranked online games move your Elo and pay ${C.ONLINE.win} Blockcoins for a win.</p>
+    <p class="note" id="qhint" style="text-align:center">${(() => { const z = stakesOf(P.elo, C.ONLINE.win, C.ONLINE.loss); return `Against a player of your level: win ${sgn(z.eloWin)} Elo and ${sgn(z.coinsWin)} coins, lose ${sgn(z.eloLoss)} Elo and ${sgn(z.coinsLoss)} coins.`; })()}</p>
     <div class="acts"><button class="btn" type="button" id="x">Cancel</button></div>`,
     s => { s.querySelector('#x').onclick = closeSheet; }, 'queue');
   clearInterval(queueT);
@@ -437,7 +443,7 @@ function viewStore(v) {
   const pm = v.querySelector('#plusM'); if (pm) pm.onclick = () => plusSheet();
   const sb = v.querySelector('#starter'); if (sb) sb.onclick = () => checkoutSheet('starter', st.coins + ' Blockcoins, the Racing skin and the Neon glow. One time only.');
   v.querySelector('#promo').onsubmit = async e => { e.preventDefault(); const m = v.querySelector('#pmsg'); const code = v.querySelector('#pcode').value.trim(); if (!code) return;
-    try { const r = await api('/api/promo', { code }); SND.win(); toast('+' + r.coins + ' Blockcoins!'); renderView(); } catch (err) { m.textContent = err.message; m.style.color = 'var(--red)'; } };
+    try { const r = await api('/api/promo', { code }); SND.win(); toast(r.plusDays ? 'Blockmate Plus unlocked!' : '+' + r.coins + ' Blockcoins!'); renderView(); } catch (err) { m.textContent = err.message; m.style.color = 'var(--red)'; } };
 }
 function customSheet() {
   let col = P.custom;
@@ -517,8 +523,8 @@ function viewProfile(v) {
       <table><tr><td>1 line</td><td>10</td></tr><tr><td>2 lines at once</td><td>30</td></tr><tr><td>3 lines at once</td><td>60</td></tr><tr><td>4 lines at once</td><td>100</td></tr></table>
       <p>Clear lines on your next turns too to build a combo: combo 2 multiplies your line points by 1.25, combo 3 by 1.5, combo 4 by 1.75. Your combo bar sits under your score and drops to 0 when you place a piece that clears nothing.</p></div></details>
     <details class="g"><summary>Bots & rewards</summary><div><p>Rookie plays almost at random, Pro always grabs the most points it can, Master reads your next move and tries to block you. Harder bots pay more Blockcoins:</p>
-      <table>${Object.values(LEVELS).map(l => `<tr><td>${l.name} (${l.elo} Elo)</td><td>Win +${l.win} · Draw +${l.draw} · Loss +${l.loss}</td></tr>`).join('')}<tr><td>Online ranked</td><td>Win +${C.ONLINE.win} · Draw +${C.ONLINE.draw} · Loss +${C.ONLINE.loss}</td></tr></table><p>Practice games pay a quarter of that and never change your Elo.</p></div></details>
-    <details class="g" id="g-rank"><summary>Elo & tiers</summary><div><p>Everyone starts at 1200 Elo. After each Ranked game your Elo moves based on the result and your opponent's Elo: beating a stronger opponent earns more, losing to a weaker one costs more. Leaving a Ranked game counts as a loss.</p>
+      <table>${Object.values(LEVELS).map(l => `<tr><td>${l.name} (${l.elo} Elo)</td><td>Win +${l.win} · Draw +${l.draw} · Loss ${sgn(l.loss)}</td></tr>`).join('')}<tr><td>Online ranked</td><td>Win +${C.ONLINE.win} · Draw +${C.ONLINE.draw} · Loss ${sgn(C.ONLINE.loss)}</td></tr></table><p>The harder the bot, the more you can win and lose. Coins can only be lost from coins won by playing, never from bought ones. Practice games never cost anything: they pay a quarter of the win and never change your Elo.</p></div></details>
+    <details class="g" id="g-rank"><summary>Elo & tiers</summary><div><p>Everyone starts at 1200 Elo. After each Ranked game your Elo moves based on the result and your opponent's Elo: beating a stronger opponent earns more, losing to a weaker one costs more. Before each Ranked game you see exactly what you can win and lose. Leaving a Ranked game counts as a loss.</p>
       <table>${TIERS.map(x => `<tr><td style="color:${x[2]}">${x[1]}</td><td>${x[0]}+ Elo</td></tr>`).join('')}</table></div></details>
     <details class="g"><summary>Blockcoins</summary><div><p>Earn Blockcoins with the daily reward (up to 150 on day 7 of your streak, doubled with Plus) and by winning games, or buy packs in the Store. Spend them in the Shop. Only Blockcoins you won by playing can be bet in friend duels, and Blockcoins can never be turned back into money.</p></div></details>
   </div>
@@ -613,7 +619,7 @@ async function startSolo(level, ranked) {
   const st = E.newState(r.seed);
   openGame({ mode: 'solo', level, ranked, gid: r.id, st, br: E.rng(E.botSeed(r.seed)), hm: [], me: 0,
     look: seatLooks(myCard(), null), avs: [P.eq.avatar, 'robot'], names: [P.name, LEVELS[level].name], sub: [tierOf(P.elo)[1] + ' · ' + P.elo + ' Elo', 'Bot · ' + LEVELS[level].elo + ' Elo'],
-    modeHtml: `Solo · <b>${ranked ? 'Ranked' : 'Practice'}</b> · win +${reward(level, 1, ranked)}`, stake: 0, clk: null });
+    modeHtml: ranked ? (() => { const L = LEVELS[level], z = stakesOf(L.elo, L.win, L.loss); return `Ranked · win <b>${sgn(z.eloWin)} Elo ${sgn(z.coinsWin)}</b> · loss <b>${sgn(z.eloLoss)} Elo ${sgn(z.coinsLoss)}</b>`; })() : `Solo · <b>Practice</b> · win +${reward(level, 1, false)}`, stake: 0, clk: null });
 }
 function startLocal() {
   SND.init();
@@ -625,7 +631,7 @@ function startOnline(m) {
   const look = seatLooks(cards[0], cards[1]);
   const names = cards.map(c => c.name), sub = cards.map(c => tierOf(c.elo)[1] + ' · ' + c.elo + ' Elo');
   openGame({ mode: 'online', kind: s.kind, mid: s.id, st: pickState(s), me: m.you, look, avs: cards.map(cardAvatar), names, sub, opp: m.opp, stake: s.stake, clk: clockFrom(s),
-    modeHtml: s.kind === 'ranked' ? 'Online · <b>Ranked</b> · 5 min each' : `Friend duel · <b>${s.stake ? s.stake + ' coins' : 'Friendly'}</b> · 5 min each` });
+    modeHtml: s.kind === 'ranked' ? (() => { const z = stakesOf(m.opp.elo, C.ONLINE.win, C.ONLINE.loss); return `Online ranked · win <b>${sgn(z.eloWin)} Elo ${sgn(z.coinsWin)}</b> · loss <b>${sgn(z.eloLoss)} Elo ${sgn(z.coinsLoss)}</b>`; })() : `Friend duel · <b>${s.stake ? s.stake + ' coins' : 'Friendly'}</b> · 5 min each` });
   if (!m.resume) SND.ping();
 }
 const pickState = s => ({ board: s.board, tray: s.tray, next: s.next || [], scores: s.scores, combo: s.combo, best: s.best, turn: s.turn, over: s.over, stuck: s.stuck });
@@ -767,7 +773,7 @@ async function result(resigned) {
     let extra = '';
     if (r) {
       extra += g.ranked ? `<div class="delta ${r.elo >= 0 ? 'up' : 'down'} num">${r.elo >= 0 ? '+' : ''}${r.elo} Elo${r.boost ? ' <span class="boostb">Plus ×2</span>' : ''} · now ${P.elo} (${tierOf(P.elo)[1]})</div>` : '<div class="delta num" style="color:var(--text-3)">Practice: Elo unchanged</div>';
-      if (r.coins) extra += `<div class="delta up num coinline">${coinSvg(20)}+${r.coins} Blockcoins</div>`;
+      if (r.coins) extra += `<div class="delta ${r.coins > 0 ? 'up' : 'down'} num coinline">${coinSvg(20)}${sgn(r.coins)} Blockcoins</div>`;
       if (r.record) extra += `<div class="delta up">New personal best vs ${g.names[1]}</div>`;
     }
     if (res === 1) SND.win(); else if (res === 0) SND.lose();

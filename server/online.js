@@ -77,7 +77,7 @@ function Online({ accounts, db, log, track }) {
       const d = [G.eloDelta(us[0].elo, us[1].elo, res[0]), G.eloDelta(us[1].elo, us[0].elo, res[1])];
       // Plus boost: double Elo on a win for a few days after subscribing. Losses are unchanged.
       us.forEach((u, i) => { if (d[i] > 0 && accounts.boosted(u)) { d[i] *= 2; out[i].boost = true; } });
-      us.forEach((u, i) => { u.elo = Math.max(100, u.elo + d[i]); out[i].elo = d[i]; const c = res[i] === 1 ? C.ONLINE.win : res[i] === 0.5 ? C.ONLINE.draw : C.ONLINE.loss; u.coins += c; out[i].coins = c; });
+      us.forEach((u, i) => { u.elo = Math.max(100, u.elo + d[i]); out[i].elo = d[i]; let c = res[i] === 1 ? C.ONLINE.win : res[i] === 0.5 ? C.ONLINE.draw : C.ONLINE.loss; if (c < 0) c = -Math.min(-c, accounts.earned(u)); u.coins += c; out[i].coins = c; });
     } else us.forEach((u, i) => { out[i].elo = 0; out[i].coins = 0; });
     if (m.stake) us.forEach((u, i) => { const back = res[i] === 1 ? 2 * m.stake : res[i] === 0.5 ? m.stake : 0; u.coins += back; out[i].coins += back - m.stake; });
     // Word of mouth: first game ever between two players, and newcomers brought by a game link.
