@@ -178,7 +178,7 @@ function createServer(opts = {}) {
         const level = data.level; if (!C.LEVELS[level]) return fail('Unknown level.');
         const ranked = data.ranked ? 1 : 0; if (ranked) forfeitOpen(u);
         const risk = -C.LEVELS[level].loss; const fresh = accounts.get(u.id);
-        if (ranked && risk > 0 && accounts.earned(fresh) < risk) return fail('You need ' + risk + ' Blockcoins won by playing to risk a Ranked game against ' + C.LEVELS[level].name + '. Win some against Rookie first, or play Practice.');
+        if (ranked && level !== 'easy' && risk > 0 && accounts.earned(fresh) < risk) return fail('You need ' + risk + ' Blockcoins won by playing to risk a Ranked game against ' + C.LEVELS[level].name + '. Win some against Rookie first, or play Practice.');
         const gid = id('s_'); const seed = crypto.randomBytes(4).readUInt32BE(0);
         soloIns.run(gid, u.id, level, ranked, seed, Date.now()); return ok({ id: gid, seed });
       }
