@@ -228,8 +228,8 @@ NET.on('room', m => {
     ${navigator.share ? '<button class="btn" type="button" id="sh">Share…</button>' : ''}<div class="spin" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="acts"><button class="btn" type="button" id="x">Cancel</button></div>`,
     s => { s.querySelector('#x').onclick = closeSheet; const inp = s.querySelector('#lnk'); inp.onfocus = () => inp.select();
-      s.querySelector('#cp').onclick = () => { (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('Link copied'), () => { inp.select(); document.execCommand('copy'); toast('Link copied'); }); };
-      const sh = s.querySelector('#sh'); if (sh) sh.onclick = () => navigator.share({ title: 'Blockmate', text: 'Beat me at Blockmate!', url }).catch(() => {}); }, 'room');
+      s.querySelector('#cp').onclick = () => { api('/api/track', { e: 'share_copy' }).catch(() => {}); (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => toast('Link copied'), () => { inp.select(); document.execCommand('copy'); toast('Link copied'); }); };
+      const sh = s.querySelector('#sh'); if (sh) sh.onclick = () => (api('/api/track', { e: 'share_native' }).catch(() => {}), navigator.share({ title: 'Blockmate', text: 'Beat me at Blockmate!', url }).catch(() => {})); }, 'room');
 });
 NET.on('invited', m => {
   if (G && !G.over) { toast(m.from.name + ' challenged you. Finish this game, then ask them again.'); NET.send({ t: 'decline', inv: m.inv }); return; }
@@ -582,6 +582,7 @@ async function result(resigned) {
       if (r.record) extra += `<div class="delta up">New personal best vs ${g.names[1]}</div>`;
     }
   } else {
+    api('/api/track', { e: 'local_end' }).catch(() => {});
     res = resigned != null ? (resigned === 0 ? 0 : 1) : E.resultFor(st, 0);
     title = res === 0.5 ? 'Draw' : esc(res === 1 ? g.names[0] : g.names[1]) + ' wins'; cls = res === 0.5 ? '' : 'win';
     line = resigned != null ? esc(g.names[resigned]) + ' resigned.' : 'Best combo: ' + st.best[0] + ' vs ' + st.best[1];
@@ -706,6 +707,9 @@ window.addEventListener('beforeunload', e => { if (G && G.mode === 'online' && !
   if (!q.get('join')) history.replaceState(null, '', '/');
   setTab(tab);
   NET.connect();
+  // Anonymous visit count for the owner dashboard: which site sent the visitor, and whether it came from a game link.
+  let ref = ''; try { ref = document.referrer ? new URL(document.referrer).hostname : ''; } catch (e) {}
+  api('/api/hit', { ref, via: q.get('join') ? 'link' : null }).catch(() => {});
   if (q.get('paid')) {
     // Stripe confirms the payment to our server a few seconds after the redirect.
     const p = PRODUCTS[q.get('paid')]; const label = p ? p.label : 'Your purchase'; toast('Thank you! ' + label + ' is being added.');

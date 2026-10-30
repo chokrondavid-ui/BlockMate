@@ -9,6 +9,7 @@ const { open } = require('./db');
 const { Accounts, id } = require('./accounts');
 const { Online } = require('./online');
 const { Stripe } = require('./stripe');
+const { Stats } = require('./stats');
 const ws = require('./ws');
 
 function createServer(opts = {}) {
@@ -18,7 +19,9 @@ function createServer(opts = {}) {
   const log = opts.quiet ? () => {} : (...a) => console.log(new Date().toISOString(), ...a);
   const db = open(opts.dbFile || env.DB_FILE || path.join(__dirname, '..', 'data', 'blockmate.db'));
   const accounts = Accounts(db);
-  const online = Online({ accounts, db, log });
+  let stats = null;
+  const online = Online({ accounts, db, log, track: (...a) => stats && stats.track(...a) });
+  stats = Stats(db, online);
   const stripe = Stripe({ secret: env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET, baseUrl: BASE, accounts, db, log });
   const DEMO_PAY = !stripe.enabled && !PROD;
   // The site answers on www.domain and on domain alone.
@@ -63,6 +66,7 @@ function createServer(opts = {}) {
     });
   }
   function staticRoute(req, res, p) {
+    if (p === '/admin' || p === '/admin/') return serveFile(req, res, path.join(ROOT, 'public', 'admin.html'), 'no-cache');
     if (p === '/' || p === '/index.html' || /^\/(play|join|profile|store)(\/|$)/.test(p)) return serveFile(req, res, path.join(ROOT, 'public', 'index.html'), 'no-cache');
     let rel = decodeURIComponent(p).replace(/\\/g, '/');
     if (rel.includes('..') || rel.includes('\0')) { res.writeHead(400); return res.end(); }
@@ -110,6 +114,15 @@ function createServer(opts = {}) {
       try { for (const uid of stripe.handle(ev)) online.pushMe(uid); } catch (e) { log('webhook failed', e); return json(res, 500, { error: 'failed' }); }
       return json(res, 200, { received: true });
     }
+    if (p === '/api/admin/stats') {
+      // Owner dashboard. The key is the ADMIN_KEY variable set on the host.
+      const key = String(req.headers['x-admin-key'] || '');
+      if (!env.ADMIN_KEY) return json(res, 503, { error: 'ADMIN_KEY is not set on the server.' });
+      if (limited('admin:' + ipOf(req), 30, 60e3)) return json(res, 429, { error: 'Too many attempts.' });
+      const a = Buffer.from(crypto.createHash('sha256').update(key).digest('hex')), b = Buffer.from(crypto.createHash('sha256').update(env.ADMIN_KEY).digest('hex'));
+      if (!crypto.timingSafeEqual(a, b)) return json(res, 401, { error: 'Wrong key.' });
+      return json(res, 200, stats.report());
+    }
     if (p === '/api/config') return json(res, 200, { payments: stripe.enabled ? 'stripe' : DEMO_PAY ? 'demo' : 'off', turnMs: 25000 });
     if (p === '/api/stats') return json(res, 200, Object.assign(online.stats(), { players: total.get().n }));
 
@@ -140,11 +153,13 @@ function createServer(opts = {}) {
 
     switch (p) {
       case '/api/me': return ok();
+      case '/api/hit': stats.hit(u.id, req, data); if (data.via === 'link') stats.track('link_visit', u.id); return json(res, 200, {});
+      case '/api/track': if (['share_copy', 'share_native', 'local_end'].includes(data.e)) stats.track(data.e === 'local_end' ? 'game_end' : data.e, u.id, data.e === 'local_end' ? { mode: 'local' } : null); return json(res, 200, {});
       case '/api/logout': accounts.endSession(token); res.setHeader('Set-Cookie', 'bm=; Path=/; Max-Age=0'); return json(res, 200, {});
       case '/api/register': {
         if (limited('reg:' + ip, 10, 3600e3)) return json(res, 429, { error: 'Too many accounts from your network. Try later.' });
         if (!u.guest) return fail('You already have an account.');
-        const e = accounts.register(u, data); return e ? fail(e) : ok();
+        const e = accounts.register(u, data); if (!e) stats.track('signup', u.id); return e ? fail(e) : ok();
       }
       case '/api/profile': { const e = accounts.updateProfile(u, data); return e ? fail(e) : ok(); }
       case '/api/equip': { const e = accounts.equip(u, data.cat, data.key); return e ? fail(e) : ok(); }
@@ -165,7 +180,7 @@ function createServer(opts = {}) {
         const r = G.replaySolo(g.seed, g.level, mv, !!data.resigned);
         if (!r.ok) { log('solo replay rejected', u.id, r.reason); return fail('This game could not be verified.'); }
         if (r.incomplete && !data.resigned) return fail('This game is not finished.');
-        soloDone.run(g.id);
+        soloDone.run(g.id); stats.track('game_end', u.id, { mode: 'solo', level: g.level, ranked: !!g.ranked });
         const fresh = accounts.get(u.id); const out = soloReward(fresh, g.level, !!g.ranked, r.result, r.st.best[0], r.st.scores[0]);
         return ok(Object.assign(out, { result: r.result, scores: r.st.scores }));
       }

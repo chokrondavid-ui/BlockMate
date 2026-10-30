@@ -5,7 +5,8 @@ const C = require('../shared/catalog');
 
 const TURN_MS = 25000, GONE_MS = 60000, INVITE_MS = 60000, ROOM_MS = 30 * 60000;
 
-function Online({ accounts, db, log }) {
+function Online({ accounts, db, log, track }) {
+  track = track || (() => {});
   const socks = new Map();       // uid -> Set of sockets
   const inMatch = new Map();     // uid -> match
   const queue = [];              // {uid, elo, since}
@@ -76,6 +77,7 @@ function Online({ accounts, db, log }) {
       accounts.save(u, ['elo', 'coins', 'st']);
     });
     matchesEnd.run(st.scores[0], st.scores[1], res[0], Date.now(), m.id);
+    for (const id of m.players) track('game_end', id, { mode: 'online', kind: m.kind });
     m.players.forEach((id, i) => send(id, { t: 'end', reason, result: res[i], scores: st.scores, elo: out[i].elo, coins: out[i].coins, me: accounts.me(accounts.get(id)) }));
     // The match stays attached for a minute so the players can ask for a rematch.
     m.closeAt = Date.now() + 60000;
@@ -134,7 +136,7 @@ function Online({ accounts, db, log }) {
         if (!isOnline(to)) return err(uid, 'Your friend is offline. Send them a game link instead.');
         if (inMatch.has(to) && !inMatch.get(to).ended) return err(uid, 'Your friend is in a game right now.');
         const me = accounts.get(uid); if (stake && accounts.earned(me) < stake) return err(uid, 'You need ' + stake + ' earned Blockcoins for this bet.');
-        const k = crypto.randomBytes(6).toString('base64url'); invites.set(k, { from: uid, to, stake, at: Date.now() });
+        const k = crypto.randomBytes(6).toString('base64url'); invites.set(k, { from: uid, to, stake, at: Date.now() }); track('invite_sent', uid, { stake });
         send(to, { t: 'invited', inv: k, from: card(me), stake }); send(uid, { t: 'invite_sent', inv: k, to }); return;
       }
       case 'accept': case 'decline': {
@@ -142,7 +144,7 @@ function Online({ accounts, db, log }) {
         invites.delete(msg.inv);
         if (msg.t === 'decline') return send(v.from, { t: 'invite_gone', inv: msg.inv, why: 'declined' });
         for (const id of [v.from, v.to]) { const x = inMatch.get(id); if (x && x.ended) release(x); }
-        if (!start(v.from, v.to, 'friend', v.stake)) err(uid, 'Could not start this game.');
+        if (!start(v.from, v.to, 'friend', v.stake)) err(uid, 'Could not start this game.'); else track('invite_accepted', uid, { from: v.from });
         return;
       }
       case 'room_create': {
@@ -150,7 +152,7 @@ function Online({ accounts, db, log }) {
         if (stake && accounts.earned(me) < stake) return err(uid, 'You need ' + stake + ' earned Blockcoins for this bet.');
         for (const [k, v] of rooms) if (v.uid === uid) rooms.delete(k);
         let code; do code = crypto.randomBytes(4).toString('hex').toUpperCase().slice(0, 6); while (rooms.has(code));
-        rooms.set(code, { uid, stake, at: Date.now() }); send(uid, { t: 'room', code, stake }); return;
+        rooms.set(code, { uid, stake, at: Date.now() }); track('link_created', uid, { stake }); send(uid, { t: 'room', code, stake }); return;
       }
       case 'room_cancel': for (const [k, v] of rooms) if (v.uid === uid) rooms.delete(k); return;
       case 'room_join': {
@@ -159,7 +161,10 @@ function Online({ accounts, db, log }) {
         if (v.uid === uid) return err(uid, 'Send this link to a friend: they join, and the game starts.');
         if (!isOnline(v.uid)) return err(uid, 'Your friend is not on Blockmate any more.');
         for (const id of [v.uid, uid]) { const x = inMatch.get(id); if (x && x.ended) release(x); }
-        rooms.delete(code); if (!start(v.uid, uid, 'friend', v.stake)) err(uid, 'Could not start this game.');
+        const joiner = accounts.get(uid), owner = accounts.get(v.uid);
+        rooms.delete(code);
+        if (!start(v.uid, uid, 'friend', v.stake)) err(uid, 'Could not start this game.');
+        else track('link_join', uid, { by: v.uid, byName: owner && owner.name, fresh: !!joiner && joiner.st.games === 0 && Date.now() - joiner.created < 3600e3 });
         return;
       }
       case 'emote': if (m && typeof msg.k === 'string' && msg.k.length < 12) send(m.players[1 - p], { t: 'emote', k: msg.k }); return;

@@ -9,7 +9,7 @@ const C = require('../shared/catalog');
 
 let app, base;
 test.before(async () => {
-  app = createServer({ dbFile: ':memory:', quiet: true, env: { NODE_ENV: 'test', STRIPE_SECRET_KEY: '', STRIPE_WEBHOOK_SECRET: 'whsec_test' } });
+  app = createServer({ dbFile: ':memory:', quiet: true, env: { NODE_ENV: 'test', STRIPE_SECRET_KEY: '', STRIPE_WEBHOOK_SECRET: 'whsec_test', ADMIN_KEY: 'adm-secret' } });
   await new Promise(r => app.server.listen(0, r)); base = 'http://localhost:' + app.server.address().port;
 });
 test.after(() => app.close());
@@ -180,4 +180,16 @@ test('static files and legal pages', async () => {
   for (const p of ['/', '/app.js', '/shared/game.js', '/legal/cgv', '/music/music-menu.mp4', '/favicon.svg']) assert.equal((await fetch(base + p)).status, 200, p);
   assert.equal((await fetch(base + '/../server/db.js')).status, 404);
   const r = await fetch(base + '/music/music-game.mp4', { headers: { range: 'bytes=0-99' } }); assert.equal(r.status, 206); assert.equal((await r.arrayBuffer()).byteLength, 100);
+});
+
+test('owner dashboard: key required, counts visits, purchases and link shares', async () => {
+  assert.equal((await fetch(base + '/api/admin/stats', { headers: { 'x-admin-key': 'nope' } })).status, 401);
+  const a = client(); await a.call('/api/me'); await a.call('/api/hit', { ref: 'www.google.com' }); await a.call('/api/hit', { ref: '' });
+  await a.call('/api/track', { e: 'share_copy' });
+  const r = await fetch(base + '/api/admin/stats', { headers: { 'x-admin-key': 'adm-secret' } }); assert.equal(r.status, 200);
+  const s = await r.json();
+  assert.ok(s.periods.today.unique >= 1); assert.ok(s.periods.today.views >= 2); assert.ok(s.periods.today.shares >= 1);
+  assert.ok(s.periods.today.linkJoins >= 1, 'link game from the earlier test'); assert.ok(s.periods.today.games >= 1);
+  assert.ok(s.revenueAll >= 999, 'webhook purchase counted, demo ones not'); assert.ok(s.subs.active >= 1);
+  assert.equal((await fetch(base + '/admin')).status, 200);
 });
