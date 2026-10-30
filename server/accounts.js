@@ -2,6 +2,8 @@
 const crypto = require('node:crypto');
 const C = require('../shared/catalog');
 const { row2user, J } = require('./db');
+const { nameOk } = require('./chatfilter');
+const PROMO_CODES = require('./promo').codes;
 
 const now = () => Date.now();
 const id = p => p + crypto.randomBytes(9).toString('base64url');
@@ -25,10 +27,13 @@ function Accounts(db) {
     sessGet: db.prepare('SELECT user_id FROM sessions WHERE token=?'),
     sessAdd: db.prepare('INSERT INTO sessions(token,user_id,created) VALUES(?,?,?)'),
     sessDel: db.prepare('DELETE FROM sessions WHERE token=?'),
-    byCustomer: db.prepare('SELECT * FROM users WHERE stripe_customer=?')
+    byCustomer: db.prepare('SELECT * FROM users WHERE stripe_customer=?'),
+    promoUsed: db.prepare('SELECT 1 FROM promo_uses WHERE code=? AND user_id=?'),
+    promoUse: db.prepare('INSERT INTO promo_uses(code,user_id,created) VALUES(?,?,?)')
   };
   const self = {
     isPlus: u => u.plus_until > now(),
+    boosted: u => (u.boost_until || 0) > now(),
     earned: u => Math.max(0, u.coins - u.paid),
     get(uid) { return row2user(q.get.get(uid)); },
     byName(name) { return row2user(q.byName.get(String(name || '').toLowerCase())); },
@@ -58,15 +63,16 @@ function Accounts(db) {
       const nextDay = u.daily_last === yest ? (u.daily_streak % 7) + 1 : 1;
       return Object.assign({
         id: u.id, name: u.name, guest: !!u.guest, email: u.email || '', country: u.country, elo: u.elo, coins: u.coins, paid: u.paid, earned: self.earned(u),
-        plus: self.isPlus(u), plusUntil: u.plus_until, subscribed: !!u.stripe_sub, starter: !!u.starter, custom: u.custom, owned: u.owned, eq: u.eq, rec: u.rec, st: u.st,
+        plus: self.isPlus(u), plusUntil: u.plus_until, boostUntil: self.boosted(u) ? u.boost_until : 0, shopDay: day, subscribed: !!u.stripe_sub, starter: !!u.starter, custom: u.custom, owned: u.owned, eq: u.eq, rec: u.rec, st: u.st,
         daily: { ready: u.daily_last !== day, streak: u.daily_streak, day: nextDay, amount: C.DAILY[nextDay - 1] * (self.isPlus(u) ? 2 : 1) }
       }, extra || {});
     },
-    publicRow: u => ({ id: u.id, name: u.name, elo: u.elo, country: u.country, plus: self.isPlus(u), games: u.st.games }),
+    publicRow: u => { const a = C.AVATARS[u.eq.avatar]; return { id: u.id, name: u.name, elo: u.elo, country: u.country, plus: self.isPlus(u), games: u.st.games, av: a && (!a.plus || self.isPlus(u)) ? u.eq.avatar : 'block' }; },
 
     register(u, { name, password, email, country }) {
       name = String(name || '').trim(); email = String(email || '').trim();
       if (!NAME_RE.test(name)) return 'Username: 3 to 16 letters, numbers or _.';
+      if (!nameOk(name)) return 'Please choose another username.';
       if (typeof password !== 'string' || password.length < 8 || password.length > 200) return 'Password: at least 8 characters.';
       if (email && !EMAIL_RE.test(email)) return 'That email address looks incomplete.';
       const other = self.byName(name); if (other && other.id !== u.id) return 'That username is taken. Try another one.';
@@ -79,6 +85,7 @@ function Accounts(db) {
       const f = [];
       if (name !== undefined && name !== u.name) {
         name = String(name).trim(); if (!NAME_RE.test(name)) return 'Username: 3 to 16 letters, numbers or _.';
+        if (!nameOk(name)) return 'Please choose another username.';
         const o = self.byName(name); if (o && o.id !== u.id) return 'That username is taken. Try another one.';
         u.name = name; u.name_lc = name.toLowerCase(); f.push('name', 'name_lc');
       }
@@ -88,17 +95,46 @@ function Accounts(db) {
       self.save(u, f); return null;
     },
     equip(u, cat, key) {
-      const c = C.CATS[cat]; if (!c || !c.data[key]) return 'Unknown item.';
+      const c = C.CATS[cat]; if (!c || !c.data[key] || c.multi) return 'Unknown item.';
       const it = c.data[key]; if (it.plus ? !self.isPlus(u) : !u.owned[cat].includes(key)) return it.plus ? 'This is a Plus item.' : 'You don\'t own this item yet.';
       u.eq[cat] = key; self.save(u, ['eq']); return null;
     },
     buy(u, cat, key) {
       const c = C.CATS[cat]; if (!c || !c.data[key]) return 'Unknown item.';
       const it = c.data[key]; if (it.plus) return 'This is a Plus item.';
+      if (it.pack) return 'This item only comes in a pack.';
       if (u.owned[cat].includes(key)) return 'You already own this item.';
-      if (u.coins < it.price) return 'Not enough Blockcoins.';
-      u.coins -= it.price; u.paid = Math.max(0, Math.min(u.coins, u.paid - it.price));
-      u.owned[cat].push(key); u.eq[cat] = key; self.save(u, ['coins', 'paid', 'owned', 'eq']); return null;
+      const price = C.priceOf(cat, key, parisDay()); if (price == null) return 'This item is not for sale.';
+      if (u.coins < price) return 'Not enough Blockcoins.';
+      self.spend(u, price); u.owned[cat].push(key); if (!c.multi) u.eq[cat] = key;
+      self.save(u, ['coins', 'paid', 'owned', 'eq']); return null;
+    },
+    spend(u, n) { u.coins -= n; u.paid = Math.max(0, Math.min(u.coins, u.paid - n)); },
+    giveItems(u, items) { for (const [cat, key] of items) if (C.CATS[cat] && C.CATS[cat].data[key] && !u.owned[cat].includes(key)) u.owned[cat].push(key); },
+    buyBundle(u, id) {
+      const b = C.BUNDLES[id]; if (!b) return 'Unknown pack.';
+      if (b.items.every(([cat, key]) => u.owned[cat].includes(key))) return 'You already own everything in this pack.';
+      if (u.coins < b.price) return 'Not enough Blockcoins.';
+      self.spend(u, b.price); self.giveItems(u, b.items); self.save(u, ['coins', 'paid', 'owned']); return null;
+    },
+    // One random prize when a guest creates an account. Returns what was won.
+    signupPrize(u) {
+      const list = C.SIGNUP_PRIZES; let x = crypto.randomInt(list.reduce((a, p) => a + p.w, 0)); let p = list[0];
+      for (const it of list) { x -= it.w; if (x < 0) { p = it; break; } }
+      let prize;
+      if (p.cat) {
+        const left = p.pick.filter(k => !u.owned[p.cat].includes(k));
+        if (left.length) { const key = left[crypto.randomInt(left.length)]; u.owned[p.cat].push(key); prize = { cat: p.cat, key }; }
+      }
+      if (!prize) { const coins = p.coins || 300; u.coins += coins; prize = { coins }; }
+      self.save(u, ['coins', 'owned']); return prize;
+    },
+    redeem(u, code) {
+      code = String(code || '').trim().toUpperCase(); const p = PROMO_CODES[code];
+      if (!p || (p.until && Date.now() > p.until)) return { error: 'This code does not exist.' };
+      if (q.promoUsed.get(code, u.id)) return { error: 'You already used this code.' };
+      q.promoUse.run(code, u.id, Date.now()); if (p.coins) u.coins += p.coins; if (p.items) self.giveItems(u, p.items);
+      self.save(u, ['coins', 'owned']); return { coins: p.coins || 0 };
     },
     claimDaily(u) {
       const day = parisDay(); if (u.daily_last === day) return { error: 'Already claimed today.' };
@@ -114,8 +150,12 @@ function Accounts(db) {
     grantProduct(u, p) {
       if (p.kind === 'coins' || p.kind === 'starter') { u.coins += p.coins; u.paid += p.coins; }
       if (p.kind === 'starter') { u.starter = 1; for (const k of p.skins) if (!u.owned.skin.includes(k)) u.owned.skin.push(k); for (const k of p.glows) if (!u.owned.glow.includes(k)) u.owned.glow.push(k); }
-      if (p.kind === 'plus') u.plus_until = Math.max(u.plus_until, now()) + (p.interval === 'year' ? 366 : 31) * 864e5;
-      self.save(u, ['coins', 'paid', 'starter', 'owned', 'plus_until']);
+      if (p.kind === 'bundle') { if (p.coins) { u.coins += p.coins; u.paid += p.coins; } self.giveItems(u, p.items); }
+      if (p.kind === 'plus') {
+        u.plus_until = Math.max(u.plus_until, now()) + (p.interval === 'year' ? 366 : 31) * 864e5;
+        u.boost_until = Math.max(u.boost_until || 0, now()) + C.BOOST_DAYS[p.interval] * 864e5;
+      }
+      self.save(u, ['coins', 'paid', 'starter', 'owned', 'plus_until', 'boost_until']);
     }
   };
   return self;

@@ -39,6 +39,7 @@ function Stripe({ secret, webhookSecret, baseUrl, accounts, db, log }) {
   async function checkout(u, productId) {
     const p = C.PRODUCTS[productId]; if (!p) return { error: 'Unknown product.' };
     if (p.kind === 'starter' && u.starter) return { error: 'You already bought the Starter pack.' };
+    if (p.kind === 'bundle' && p.items.every(([c, k]) => u.owned[c].includes(k))) return { error: 'You already own this pack.' };
     if (p.kind === 'plus' && u.stripe_sub) return { error: 'You already have Blockmate Plus. Manage it from your profile.' };
     if (!enabled) return { error: 'Payments are not switched on yet.' };
     const sub = p.kind === 'plus';
@@ -112,6 +113,7 @@ function Stripe({ secret, webhookSecret, baseUrl, accounts, db, log }) {
   function demoGrant(u, productId) {
     const p = C.PRODUCTS[productId]; if (!p) return { error: 'Unknown product.' };
     if (p.kind === 'starter' && u.starter) return { error: 'You already bought the Starter pack.' };
+    if (p.kind === 'bundle' && p.items.every(([c, k]) => u.owned[c].includes(k))) return { error: 'You already own this pack.' };
     once('demo_' + crypto.randomBytes(8).toString('hex'), u.id, productId, 0, () => accounts.grantProduct(u, p));
     return { demo: true };
   }

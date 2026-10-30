@@ -177,9 +177,9 @@ test('online: friend challenge with a bet, winner takes the stake', async () => 
 });
 
 test('static files and legal pages', async () => {
-  for (const p of ['/', '/app.js', '/shared/game.js', '/legal/cgv', '/music/music-menu.mp4', '/favicon.svg']) assert.equal((await fetch(base + p)).status, 200, p);
+  for (const p of ['/', '/app.js', '/shared/game.js', '/legal/cgv', '/music/music-menu-1.mp4', '/favicon.svg']) assert.equal((await fetch(base + p)).status, 200, p);
   assert.equal((await fetch(base + '/../server/db.js')).status, 404);
-  const r = await fetch(base + '/music/music-game.mp4', { headers: { range: 'bytes=0-99' } }); assert.equal(r.status, 206); assert.equal((await r.arrayBuffer()).byteLength, 100);
+  const r = await fetch(base + '/music/music-game-1.mp4', { headers: { range: 'bytes=0-99' } }); assert.equal(r.status, 206); assert.equal((await r.arrayBuffer()).byteLength, 100);
 });
 
 test('owner dashboard: key required, counts visits, purchases and link shares', async () => {
@@ -192,4 +192,43 @@ test('owner dashboard: key required, counts visits, purchases and link shares', 
   assert.ok(s.periods.today.linkJoins >= 1, 'link game from the earlier test'); assert.ok(s.periods.today.games >= 1);
   assert.ok(s.revenueAll >= 999, 'webhook purchase counted, demo ones not'); assert.ok(s.subs.active >= 1);
   assert.equal((await fetch(base + '/admin')).status, 200);
+});
+
+test('signup prize, promo code once, coin bundle, daily deal price', async () => {
+  const a = client(); await a.call('/api/me');
+  const r = await a.call('/api/register', { name: 'Prize' + crypto.randomInt(1e5), password: 'longenough1' });
+  assert.ok(r.prize && (r.prize.coins > 0 || (r.prize.cat && r.me.owned[r.prize.cat].includes(r.prize.key))), JSON.stringify(r.prize));
+  assert.equal((await a.call('/api/register', { name: 'Connard93', password: 'longenough1' }))._status, 400);
+  const c0 = r.me.coins; const p = await a.call('/api/promo', { code: 'parnassa' }); assert.equal(p.me.coins, c0 + 1000);
+  assert.equal((await a.call('/api/promo', { code: 'PARNASSA' }))._status, 400, 'once per account');
+  assert.equal((await a.call('/api/promo', { code: 'NOPE' }))._status, 400);
+  const b = await a.call('/api/bundle', { id: 'neonNight' }); assert.equal(b._status, 200); assert.ok(b.me.owned.sticker.includes('cool'));
+  assert.equal((await a.call('/api/buy', { cat: 'skin', key: 'phoenix' }))._status, 400, 'pack-only item');
+  const day = b.me.shopDay; const d = C.dailyShop(day); const [cat, key] = d.deal;
+  if (!b.me.owned[cat].includes(key)) { const before = b.me.coins; const bought = await a.call('/api/buy', { cat, key }); if (bought._status === 200) assert.equal(bought.me.coins, before - C.priceOf(cat, key, day)); }
+});
+
+test('online: clocks, peek relay, filtered chat, stickers, first friend game bonus, referral', async () => {
+  const a = client(), b = client(); await a.call('/api/me'); const mb = (await b.call('/api/me')).me;
+  const A = socket(a.token()), B = socket(b.token()); await A.open; await B.open; await A.next('hello'); await B.next('hello');
+  A.send({ t: 'room_create', stake: 0 }); const room = await A.next('room');
+  B.send({ t: 'room_join', code: room.code }); const [sa, sb] = await Promise.all([A.next('start'), B.next('start')]);
+  assert.deepEqual(sa.state.clocks.map(x => x > 590000), [true, true]); assert.equal(sa.state.next.length, 3);
+  const byIdx = sa.you === 0 ? [A, B] : [B, A];
+  let state = sa.state;
+  byIdx[state.turn].send({ t: 'peek', ti: 1, fr: 2.4, fc: 3.1 }); const pk = await byIdx[1 - state.turn].next('peek'); assert.equal(pk.ti, 1);
+  A.send({ t: 'chat', text: 't es nul mais connard' }); const ch = await B.next('chat'); assert.ok(ch.text.startsWith('t es nul mais') && !ch.text.includes('connard') && ch.masked); await A.next('chat');
+  await new Promise(r => setTimeout(r, 750));
+  A.send({ t: 'chat', text: 'je vais te tuer' }); await A.next('chat_blocked');
+  await new Promise(r => setTimeout(r, 750));
+  B.send({ t: 'sticker', k: 'gg' }); assert.equal((await A.next('chat')).k, 'gg'); await B.next('chat');
+  await new Promise(r => setTimeout(r, 750));
+  B.send({ t: 'sticker', k: 'goat' }); await B.next('error');
+  for (let n = 0; n < 8 && !state.over; n++) { const m = G.moves(state.board, state.tray)[0]; byIdx[state.turn].send({ t: 'move', ti: m.ti, r: m.r, c: m.c }); const [x] = await Promise.all([A.next('move'), B.next('move')]); state = x.state; }
+  assert.ok(state.clocks[0] <= C.CLOCK_MS);
+  A.send({ t: 'resign' }); const [ea, eb] = await Promise.all([A.next('end'), B.next('end')]);
+  assert.equal(ea.names.length, 2);
+  // B was a brand-new guest brought by A's link: both get the referral bonus on top of the first-game bonus.
+  assert.equal(eb.bonus, C.REFERRAL.firstFriendGame + C.REFERRAL.newcomer); assert.equal(ea.bonus, C.REFERRAL.firstFriendGame + C.REFERRAL.sharer);
+  A.ws.close(); B.ws.close();
 });

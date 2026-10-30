@@ -85,7 +85,7 @@ function createServer(opts = {}) {
     const L = C.LEVELS[level]; const out = { elo: 0, coins: 0, record: false };
     let coins = result === 1 ? L.win : result === 0.5 ? L.draw : L.loss; if (!ranked) coins = Math.round(coins * C.PRACTICE);
     u.coins += coins; out.coins = coins;
-    if (ranked) { out.elo = G.eloDelta(u.elo, L.elo, result); u.elo = Math.max(100, u.elo + out.elo); }
+    if (ranked) { out.elo = G.eloDelta(u.elo, L.elo, result); if (out.elo > 0 && accounts.boosted(u)) { out.elo *= 2; out.boost = true; } u.elo = Math.max(100, u.elo + out.elo); }
     u.st.games++; if (result === 1) u.st.wins++; else if (result === 0) u.st.losses++; else u.st.draws++;
     u.st.bestCombo = Math.max(u.st.bestCombo, best || 0);
     if (score > (u.rec[level] || 0)) { u.rec[level] = score; out.record = true; }
@@ -123,7 +123,7 @@ function createServer(opts = {}) {
       if (!crypto.timingSafeEqual(a, b)) return json(res, 401, { error: 'Wrong key.' });
       return json(res, 200, stats.report());
     }
-    if (p === '/api/config') return json(res, 200, { payments: stripe.enabled ? 'stripe' : DEMO_PAY ? 'demo' : 'off', turnMs: 25000 });
+    if (p === '/api/config') return json(res, 200, { payments: stripe.enabled ? 'stripe' : DEMO_PAY ? 'demo' : 'off', clockMs: C.CLOCK_MS });
     if (p === '/api/stats') return json(res, 200, Object.assign(online.stats(), { players: total.get().n }));
 
     const ip = ipOf(req);
@@ -159,10 +159,16 @@ function createServer(opts = {}) {
       case '/api/register': {
         if (limited('reg:' + ip, 10, 3600e3)) return json(res, 429, { error: 'Too many accounts from your network. Try later.' });
         if (!u.guest) return fail('You already have an account.');
-        const e = accounts.register(u, data); if (!e) stats.track('signup', u.id); return e ? fail(e) : ok();
+        const e = accounts.register(u, data); if (e) return fail(e);
+        stats.track('signup', u.id); const prize = accounts.signupPrize(accounts.get(u.id)); return ok({ prize });
       }
       case '/api/profile': { const e = accounts.updateProfile(u, data); return e ? fail(e) : ok(); }
       case '/api/equip': { const e = accounts.equip(u, data.cat, data.key); return e ? fail(e) : ok(); }
+      case '/api/bundle': { const e = accounts.buyBundle(u, data.id); return e ? fail(e) : ok(); }
+      case '/api/promo': {
+        if (limited('promo:' + u.id, 8, 3600e3)) return json(res, 429, { error: 'Too many tries. Wait an hour.' });
+        const r = accounts.redeem(u, data.code); if (!r.error) stats.track('promo', u.id, { code: String(data.code).toUpperCase() }); return r.error ? fail(r.error) : ok(r);
+      }
       case '/api/buy': { const e = accounts.buy(u, data.cat, data.key); return e ? fail(e) : ok(); }
       case '/api/daily': { const r = accounts.claimDaily(u); return r.error ? fail(r.error) : ok(r); }
       case '/api/reset': accounts.resetProgress(u); return ok();

@@ -2,8 +2,9 @@
 const crypto = require('node:crypto');
 const G = require('../shared/game');
 const C = require('../shared/catalog');
+const { clean } = require('./chatfilter');
 
-const TURN_MS = 25000, GONE_MS = 60000, INVITE_MS = 60000, ROOM_MS = 30 * 60000;
+const GONE_MS = 60000, INVITE_MS = 60000, ROOM_MS = 30 * 60000;
 
 function Online({ accounts, db, log, track }) {
   track = track || (() => {});
@@ -15,6 +16,9 @@ function Online({ accounts, db, log, track }) {
   const matchesIns = db.prepare('INSERT INTO matches(id,a,b,kind,stake,seed,created) VALUES(?,?,?,?,?,?,?)');
   const matchesEnd = db.prepare('UPDATE matches SET sa=?,sb=?,result=?,ended=? WHERE id=?');
   const friendIds = db.prepare('SELECT friend_id FROM friends WHERE user_id=?');
+  const pairGet = db.prepare('SELECT 1 FROM pairs WHERE a=? AND b=?');
+  const pairAdd = db.prepare('INSERT OR IGNORE INTO pairs(a,b,created) VALUES(?,?,?)');
+  const referralsToday = db.prepare("SELECT COUNT(*) n FROM events WHERE type='referral' AND user_id=? AND created>?");
 
   const isOnline = uid => socks.has(uid);
   function send(uid, msg) { const s = socks.get(uid); if (s) for (const ws of s) ws.send(msg); }
@@ -27,7 +31,10 @@ function Online({ accounts, db, log, track }) {
 
   function view(m) {
     const st = m.st;
-    return { id: m.id, kind: m.kind, stake: m.stake, board: st.board, tray: st.tray, scores: st.scores, combo: st.combo, best: st.best, turn: st.turn, over: st.over, stuck: st.stuck, deadline: m.deadline, now: Date.now(), moves: st.log.length };
+    return { id: m.id, kind: m.kind, stake: m.stake, board: st.board, tray: st.tray, next: st.next, scores: st.scores, combo: st.combo, best: st.best, turn: st.turn, over: st.over, stuck: st.stuck, clocks: clocks(m), running: !m.ended && !st.over, now: Date.now(), moves: st.log.length };
+  }
+  // Chess clocks: each player has 10 minutes for the whole game; only the player to move is counting down.
+  function clocks(m) { const c = m.clock.slice(); if (!m.ended && !m.st.over) c[m.st.turn] = Math.max(0, c[m.st.turn] - (Date.now() - m.turnAt)); return c;
   }
 
   function start(uidA, uidB, kind, stake) {
@@ -40,27 +47,27 @@ function Online({ accounts, db, log, track }) {
     leaveQueue(a.id); leaveQueue(b.id);
     const players = Math.random() < 0.5 ? [a.id, b.id] : [b.id, a.id];
     const seed = crypto.randomBytes(4).readUInt32BE(0);
-    const m = { id: 'm_' + crypto.randomBytes(8).toString('base64url'), kind, stake, players, cards: players.map(id => card(id === a.id ? a : b)), st: G.newState(seed), seed, timeouts: [0, 0], gone: [0, 0], rematch: [false, false], ended: false, deadline: 0 };
+    const m = { id: 'm_' + crypto.randomBytes(8).toString('base64url'), kind, stake, players, cards: players.map(id => card(id === a.id ? a : b)), st: G.newState(seed), seed, clock: [C.CLOCK_MS, C.CLOCK_MS], turnAt: Date.now(), gone: [0, 0], rematch: [false, false], ended: false, ref: null, lastChat: [0, 0], chatN: [0, 0], lastPeek: [0, 0] };
     matchesIns.run(m.id, players[0], players[1], kind, stake, seed, Date.now());
     for (const id of players) inMatch.set(id, m);
     if (!G.moves(m.st.board, m.st.tray).length) { m.st.over = true; m.st.stuck = 0; m.st.scores[1] += G.BLOCK_BONUS; }
-    m.deadline = Date.now() + TURN_MS;
     players.forEach((id, i) => { send(id, { t: 'start', you: i, opp: m.cards[1 - i], meCard: m.cards[i], state: view(m) }); presence(id, true); });
     if (m.st.over) finish(m, null);
     return true;
   }
 
-  function move(m, p, ti, r, c, auto) {
+  function move(m, p, ti, r, c) {
     if (m.ended || m.st.over || m.st.turn !== p) return false;
+    const now = Date.now(); const left = m.clock[p] - (now - m.turnAt);
+    if (left <= 0) { m.clock[p] = 0; finish(m, 'time', p); return true; }
     const mv = G.play(m.st, ti, r, c); if (!mv) return false;
-    if (!auto) m.timeouts[p] = 0;
-    m.deadline = Date.now() + TURN_MS;
-    for (const id of m.players) send(id, { t: 'move', mv, auto: !!auto, state: view(m) });
+    m.clock[p] = left; m.turnAt = now;
+    for (const id of m.players) send(id, { t: 'move', mv, state: view(m) });
     if (m.st.over) finish(m, null);
     return true;
   }
 
-  // reason: null (board blocked), 'resign', 'timeout', 'left'. loser: index of the player who gave up.
+  // reason: null (board blocked), 'resign', 'time', 'left'. loser: index of the player who gave up.
   function finish(m, reason, loser) {
     if (m.ended) return; m.ended = true; m.st.over = true;
     const st = m.st; const res = [0, 1].map(p => reason ? (p === loser ? 0 : 1) : G.resultFor(st, p));
@@ -68,9 +75,26 @@ function Online({ accounts, db, log, track }) {
     const out = [{}, {}];
     if (m.kind === 'ranked') {
       const d = [G.eloDelta(us[0].elo, us[1].elo, res[0]), G.eloDelta(us[1].elo, us[0].elo, res[1])];
+      // Plus boost: double Elo on a win for a few days after subscribing. Losses are unchanged.
+      us.forEach((u, i) => { if (d[i] > 0 && accounts.boosted(u)) { d[i] *= 2; out[i].boost = true; } });
       us.forEach((u, i) => { u.elo = Math.max(100, u.elo + d[i]); out[i].elo = d[i]; const c = res[i] === 1 ? C.ONLINE.win : res[i] === 0.5 ? C.ONLINE.draw : C.ONLINE.loss; u.coins += c; out[i].coins = c; });
     } else us.forEach((u, i) => { out[i].elo = 0; out[i].coins = 0; });
     if (m.stake) us.forEach((u, i) => { const back = res[i] === 1 ? 2 * m.stake : res[i] === 0.5 ? m.stake : 0; u.coins += back; out[i].coins += back - m.stake; });
+    // Word of mouth: first game ever between two players, and newcomers brought by a game link.
+    const played = st.log.length >= 6 && reason !== 'left';
+    if (m.kind === 'friend' && played) {
+      const [x, y] = m.players.slice().sort();
+      if (!pairGet.get(x, y)) { pairAdd.run(x, y, Date.now()); us.forEach((u, i) => { u.coins += C.REFERRAL.firstFriendGame; out[i].bonus = (out[i].bonus || 0) + C.REFERRAL.firstFriendGame; out[i].bonusWhy = 'first'; }); }
+    }
+    if (m.ref && played) {
+      const si = m.players.indexOf(m.ref.sharer), ni = m.players.indexOf(m.ref.newcomer);
+      if (si >= 0 && ni >= 0 && referralsToday.get(m.ref.sharer, Date.now() - 864e5).n < C.REFERRAL.perDay) {
+        us[si].coins += C.REFERRAL.sharer; out[si].bonus = (out[si].bonus || 0) + C.REFERRAL.sharer; out[si].bonusWhy = 'referral';
+        us[ni].coins += C.REFERRAL.newcomer; out[ni].bonus = (out[ni].bonus || 0) + C.REFERRAL.newcomer; out[ni].bonusWhy = 'welcome';
+        track('referral', m.ref.sharer, { newcomer: m.ref.newcomer });
+      }
+      m.ref = null;
+    }
     us.forEach((u, i) => {
       u.st.games++; if (res[i] === 1) u.st.wins++; else if (res[i] === 0) u.st.losses++; else u.st.draws++;
       u.st.bestCombo = Math.max(u.st.bestCombo, st.best[i]);
@@ -78,7 +102,7 @@ function Online({ accounts, db, log, track }) {
     });
     matchesEnd.run(st.scores[0], st.scores[1], res[0], Date.now(), m.id);
     for (const id of m.players) track('game_end', id, { mode: 'online', kind: m.kind });
-    m.players.forEach((id, i) => send(id, { t: 'end', reason, result: res[i], scores: st.scores, elo: out[i].elo, coins: out[i].coins, me: accounts.me(accounts.get(id)) }));
+    m.players.forEach((id, i) => send(id, { t: 'end', reason, result: res[i], scores: st.scores, names: m.cards.map(c => c.name), elo: out[i].elo, coins: out[i].coins, boost: !!out[i].boost, bonus: out[i].bonus || 0, bonusWhy: out[i].bonusWhy || null, me: accounts.me(accounts.get(id)) }));
     // The match stays attached for a minute so the players can ask for a rematch.
     m.closeAt = Date.now() + 60000;
   }
@@ -91,12 +115,7 @@ function Online({ accounts, db, log, track }) {
       if (m.ended) { if (t > m.closeAt) { for (const id of m.players) send(id, { t: 'closed', id: m.id }); release(m); } continue; }
       m.players.forEach((id, i) => { if (!isOnline(id)) { if (!m.gone[i]) m.gone[i] = t; } else m.gone[i] = 0; });
       const g = m.gone.findIndex(x => x && t - x > GONE_MS); if (g >= 0) { finish(m, 'left', g); continue; }
-      if (t > m.deadline) {
-        const p = m.st.turn; m.timeouts[p]++;
-        if (m.timeouts[p] >= 2) { finish(m, 'timeout', p); continue; }
-        const ms = G.moves(m.st.board, m.st.tray); const pick = ms[Math.floor(Math.random() * ms.length)];
-        move(m, p, pick.ti, pick.r, pick.c, true);
-      }
+      const p = m.st.turn; if (m.clock[p] - (t - m.turnAt) <= 0) { m.clock[p] = 0; finish(m, 'time', p); }
     }
     // Matchmaking: the allowed Elo gap widens the longer people wait.
     queue.sort((x, y) => x.since - y.since);
@@ -120,7 +139,7 @@ function Online({ accounts, db, log, track }) {
         const u = accounts.get(uid); leaveQueue(uid); queue.push({ uid, elo: u.elo, since: Date.now() }); send(uid, { t: 'queued', players: queue.length }); return;
       }
       case 'cancel': leaveQueue(uid); send(uid, { t: 'unqueued' }); return;
-      case 'move': if (!m || !move(m, p, msg.ti, msg.r, msg.c, false)) send(uid, { t: 'reject', state: m ? view(m) : null }); return;
+      case 'move': if (!m || !move(m, p, msg.ti, msg.r, msg.c)) send(uid, { t: 'reject', state: m ? view(m) : null }); return;
       case 'resign': if (m && !m.ended) finish(m, 'resign', p); return;
       case 'leave': if (m && m.ended) { const o = m.players[1 - p]; send(o, { t: 'rematch_no' }); inMatch.delete(uid); presence(uid, true); } return;
       case 'rematch': {
@@ -164,10 +183,31 @@ function Online({ accounts, db, log, track }) {
         const joiner = accounts.get(uid), owner = accounts.get(v.uid);
         rooms.delete(code);
         if (!start(v.uid, uid, 'friend', v.stake)) err(uid, 'Could not start this game.');
-        else track('link_join', uid, { by: v.uid, byName: owner && owner.name, fresh: !!joiner && joiner.st.games === 0 && Date.now() - joiner.created < 3600e3 });
+        else {
+          const fresh = !!joiner && joiner.st.games === 0 && Date.now() - joiner.created < 3600e3;
+          track('link_join', uid, { by: v.uid, byName: owner && owner.name, fresh });
+          if (fresh) inMatch.get(uid).ref = { sharer: v.uid, newcomer: uid };
+        }
         return;
       }
-      case 'emote': if (m && typeof msg.k === 'string' && msg.k.length < 12) send(m.players[1 - p], { t: 'emote', k: msg.k }); return;
+      // Live view of the opponent's hand: which piece they hold and where they drag it (not checked, display only).
+      case 'peek': {
+        if (!m || m.ended || m.st.turn !== p) return; const t = Date.now(); if (t - m.lastPeek[p] < 40) return; m.lastPeek[p] = t;
+        const ti = Number.isInteger(msg.ti) && msg.ti >= 0 && msg.ti < 3 ? msg.ti : null;
+        const fr = typeof msg.fr === 'number' && isFinite(msg.fr) ? Math.max(-6, Math.min(14, msg.fr)) : null, fc = typeof msg.fc === 'number' && isFinite(msg.fc) ? Math.max(-6, Math.min(14, msg.fc)) : null;
+        send(m.players[1 - p], { t: 'peek', ti, fr, fc }); return;
+      }
+      case 'chat': case 'sticker': {
+        if (!m) return; const t = Date.now();
+        if (t - m.lastChat[p] > 10000) m.chatN[p] = 0; if (++m.chatN[p] > 6 || t - m.lastChat[p] < 700) return send(uid, { t: 'chat_slow' }); m.lastChat[p] = t;
+        if (msg.t === 'sticker') {
+          const k = String(msg.k || ''); const it = C.STICKERS[k]; const u = accounts.get(uid); if (!it || !u) return;
+          if (it.plus ? !accounts.isPlus(u) : !u.owned.sticker.includes(k)) return err(uid, 'You don\'t own this sticker yet.');
+          for (const id of m.players) send(id, { t: 'chat', from: p, k }); return;
+        }
+        const r = clean(msg.text); if (r.blocked) return send(uid, { t: 'chat_blocked' }); if (!r.text) return;
+        for (const id of m.players) send(id, { t: 'chat', from: p, text: r.text, masked: r.changed }); return;
+      }
     }
   }
 
@@ -175,7 +215,7 @@ function Online({ accounts, db, log, track }) {
     let set = socks.get(uid); const first = !set; if (!set) socks.set(uid, set = new Set()); set.add(ws);
     let count = 0, windowStart = Date.now();
     ws.on('message', msg => {
-      const t = Date.now(); if (t - windowStart > 1000) { windowStart = t; count = 0; } if (++count > 30) return; // flood guard
+      const t = Date.now(); if (t - windowStart > 1000) { windowStart = t; count = 0; } if (++count > 60) return; // flood guard
       try { onMessage(uid, msg); } catch (e) { log('ws error', e); }
     });
     ws.on('close', () => { set.delete(ws); if (!set.size) { socks.delete(uid); leaveQueue(uid); presence(uid, false); } });
@@ -189,4 +229,4 @@ function Online({ accounts, db, log, track }) {
   function stats() { return { online: socks.size, queue: queue.length, matches: new Set(inMatch.values()).size }; }
   return { connect, isOnline, pushMe, stats, send, _tick: tick, _inMatch: inMatch };
 }
-module.exports = { Online, TURN_MS };
+module.exports = { Online };
