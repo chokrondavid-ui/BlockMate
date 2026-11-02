@@ -22,7 +22,8 @@ function createServer(opts = {}) {
   let stats = null;
   const online = Online({ accounts, db, log, track: (...a) => stats && stats.track(...a) });
   stats = Stats(db, online);
-  const stripe = Stripe({ secret: env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET, baseUrl: BASE, accounts, db, log });
+  // PAYMENTS=off closes the Store without removing the Stripe keys.
+  const stripe = Stripe({ secret: env.PAYMENTS === 'off' ? '' : env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET, baseUrl: BASE, accounts, db, log });
   const DEMO_PAY = !stripe.enabled && !PROD;
   // The site answers on www.domain and on domain alone.
   const ORIGINS = new Set([BASE, BASE.replace('://www.', '://'), BASE.replace('://', '://www.')].concat((env.EXTRA_ORIGINS || '').split(',').filter(Boolean)));
