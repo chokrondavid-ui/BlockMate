@@ -25,12 +25,16 @@ function open(file) {
   CREATE INDEX IF NOT EXISTS events_created ON events(created);
   CREATE TABLE IF NOT EXISTS purchases(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, product TEXT NOT NULL, cents INTEGER NOT NULL, created INTEGER NOT NULL);
   CREATE INDEX IF NOT EXISTS purchases_created ON purchases(created);
+  CREATE TABLE IF NOT EXISTS daily_runs(day TEXT NOT NULL, user_id TEXT NOT NULL, seed INTEGER NOT NULL, score INTEGER, created INTEGER NOT NULL, finished INTEGER, PRIMARY KEY(day, user_id));
+  CREATE INDEX IF NOT EXISTS daily_rank ON daily_runs(day, score DESC);
   CREATE TABLE IF NOT EXISTS pairs(a TEXT NOT NULL, b TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(a, b));
   CREATE TABLE IF NOT EXISTS promo_uses(code TEXT NOT NULL, user_id TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(code, user_id));
   `);
   // Columns added after launch.
   const cols = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
   if (!cols.includes('boost_until')) db.exec('ALTER TABLE users ADD COLUMN boost_until INTEGER NOT NULL DEFAULT 0');
+  const scols = db.prepare('PRAGMA table_info(solo)').all().map(c => c.name);
+  if (!scols.includes('target')) db.exec('ALTER TABLE solo ADD COLUMN target INTEGER NOT NULL DEFAULT 0');
   return db;
 }
 

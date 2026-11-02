@@ -395,7 +395,7 @@ body{transition:background-color .6s}
 .log .sys{align-self:center;color:var(--text-3);font-size:12px}
 .cin{display:grid;grid-template-columns:1fr auto;gap:6px}
 .cin .f{min-width:0;padding:8px 10px}
-.bub{position:absolute;z-index:7;left:50%;top:62px;transform:translate(-50%,0);background:#fff;color:#140A1E;font-weight:700;padding:7px 12px;border-radius:12px;max-width:220px;white-space:normal;text-align:center;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.45);animation:bub 3.2s ease forwards;pointer-events:none}
+.bub{position:absolute;z-index:7;left:50%;top:calc(100% + 10px);transform:translate(-50%,0);background:#fff;color:#140A1E;font-weight:700;padding:7px 12px;border-radius:12px;max-width:220px;white-space:normal;text-align:center;font-size:14px;box-shadow:0 10px 24px rgba(0,0,0,.45);animation:bub 3.2s ease forwards;pointer-events:none}
 .bub .e{font-size:30px;line-height:1}
 .bub::after{content:"";position:absolute;left:50%;top:-7px;margin-left:-7px;border:7px solid transparent;border-top:0;border-bottom-color:#fff}
 .pl{position:relative}
@@ -449,6 +449,42 @@ body{transition:background-color .6s}
 .blk.phoenix{background:radial-gradient(70% 55% at 50% 100%,rgba(255,240,140,.95),transparent 60%),linear-gradient(0deg,#FF3A00,#FF8A2B 45%,#FFB21E 70%,#FF3D7F);background-size:100% 220%,100% 100%;animation:flame 1s ease-in-out infinite alternate;box-shadow:inset 0 0 0 1px rgba(255,220,150,.7),0 0 14px rgba(255,106,43,.6)}
 .blk.void{background:radial-gradient(1px 1px at 30% 35%,#fff,transparent),radial-gradient(1px 1px at 68% 62%,#d9c6ff,transparent),radial-gradient(70% 70% at 50% 50%,#000 40%,#2A1250 75%,#9D5BFF 100%);box-shadow:inset 0 0 0 1px #9D5BFF,0 0 10px rgba(157,91,255,.5)}
 @media (max-width:980px){.arena .center{width:min(100%,620px,calc(100dvh - 430px))!important}.side{display:contents}.chat{grid-column:1/-1;grid-row:3}.clk{font-size:28px;padding:6px 8px}.pav{width:30px;height:30px}.log{height:120px}.nq .nx{width:52px;height:44px}}
+/* v1.2: mode tiles and setup sheets */
+.mtiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+.mtile{grid-column:span 2;position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--solid);text-align:left;min-height:150px;display:flex;flex-direction:column;justify-content:flex-end;transition:border-color .15s,box-shadow .15s,transform .15s}
+.mtile.big{grid-column:span 3;min-height:200px}
+.mtile:hover{border-color:var(--mc);box-shadow:0 0 0 1px var(--mc),0 14px 30px rgba(0,0,0,.35);transform:translateY(-2px)}
+.mtile .art{position:absolute;inset:0;display:grid;grid-template-columns:repeat(8,1fr);gap:3px;padding:10px;align-content:start;opacity:.85}
+.mtile .art i{aspect-ratio:1;border-radius:22%}
+.mtile .shade{position:absolute;inset:0;background:linear-gradient(180deg,rgba(14,9,24,0) 10%,rgba(14,9,24,.78) 52%,rgba(14,9,24,.97) 100%)}
+.mtile .tl{position:absolute;top:10px;right:10px}
+.mtile .bt{position:relative;padding:14px 14px 12px;display:grid;gap:4px}
+.mtile .bt b{font-family:var(--f-ui);font-weight:700;font-size:20px;letter-spacing:.07em;text-transform:uppercase;line-height:1}
+.mtile.big .bt b{font-size:24px}
+.mtile .bt em{font-style:normal;font-size:13px;color:var(--text-2)}
+.mtile .go{position:absolute;right:12px;bottom:12px;font-family:var(--f-ui);font-weight:700;font-size:12px;letter-spacing:.12em;text-transform:uppercase;background:var(--mc);color:#140A1E;padding:6px 10px;border-radius:8px}
+.mtile .bt{padding-right:74px}
+.seg.wide{display:grid;width:100%}
+.seg.wide button{padding:9px 6px;letter-spacing:.06em;font-size:12px}
+.opt{display:grid;gap:6px}
+.opt>span{font-family:var(--f-ui);font-weight:700;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3)}
+.dcards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.dcard{border:1px solid var(--line);border-radius:12px;padding:10px 6px;display:grid;gap:3px;justify-items:center;background:rgba(10,6,18,.5);text-align:center}
+.dcard b{font-family:var(--f-ui);font-size:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--mc)}
+.dcard span,.dcard small{font-size:12.5px;color:var(--text-2)}
+.dcard em{font-style:normal;font-weight:700}.dcard em.up{color:var(--green)}.dcard em.dn{color:var(--red)}
+.dcard[aria-pressed="true"]{border-color:var(--mc);box-shadow:0 0 0 1px var(--mc);background:rgba(255,255,255,.05)}
+.stakes{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stakes>div{border:1px solid var(--line);border-radius:10px;padding:8px;display:grid;gap:2px;text-align:center;font-size:13px}
+.stakes .up b{color:var(--green)}.stakes .dn b{color:var(--red)}
+.gtarget{font-family:var(--f-ui);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);border:1px solid rgba(255,201,74,.4);border-radius:8px;padding:4px 8px;white-space:nowrap}
+.tgbar{height:6px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:6px}
+.tgbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--orange),var(--gold));transition:width .4s}
+.game.solo1 .legend div:last-child,.game.solo1 #c1{display:none}
+@media (max-width:760px){.mtiles{grid-template-columns:repeat(2,minmax(0,1fr))}.mtile,.mtile.big{grid-column:span 1;min-height:128px}.mtile:first-child{grid-column:span 2}.mtile .bt b,.mtile.big .bt b{font-size:17px}.mtile .go{display:none}.mtile .bt{padding-right:12px}.dcards{gap:6px}.gtarget{display:none}}
+.portal .foot{display:none}
+@media (max-width:400px){.logo .wm{font-size:19px}.logo svg{width:28px;height:28px}.logo{gap:7px}}
+.dcard i{font-style:normal;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3)}
 /* live-server additions */
 .waiver{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--text-2);line-height:1.4;text-align:left;cursor:pointer}
 .waiver input{margin-top:2px;width:18px;height:18px;accent-color:var(--orange);flex:none}
@@ -474,7 +510,7 @@ body{transition:background-color .6s}
 <div class="page" id="page">
   <header class="topbar"><div class="in">
     <a class="logo" id="home" href="/" title="Home"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="3" y="3" width="15.5" height="15.5" rx="3.5" fill="#F2781C"/><rect x="21.5" y="3" width="15.5" height="15.5" rx="3.5" fill="none" stroke="#FF9B3D" stroke-width="2.4"/><rect x="3" y="21.5" width="15.5" height="15.5" rx="3.5" fill="#FF9B3D"/><rect x="21.5" y="21.5" width="15.5" height="15.5" rx="3.5" fill="#F2781C"/><path d="M6.5 7.5h6" stroke="#FFD7B0" stroke-width="2" stroke-linecap="round" opacity=".7"/></svg>
-      <div><div class="wm">BLOCK<b>MATE</b></div><span class="ver">v1.1</span></div></a>
+      <div><div class="wm">BLOCK<b>MATE</b></div><span class="ver">v1.2</span></div></a>
     <nav class="nav" aria-label="Main">
       <button type="button" data-tab="play" aria-current="page">Play<span class="dotn" data-dot hidden></span></button>
       <button type="button" data-tab="friends">Friends</button>
@@ -502,13 +538,13 @@ body{transition:background-color .6s}
 <section class="game" id="game" hidden>
   <div class="gtop"><div class="in">
     <button class="btn sm" type="button" id="gExit">‹ Leave</button>
-    <span class="gmode" id="gMode">Solo</span>
+    <span class="gmode" id="gMode">Solo</span><span class="gtarget" id="gTarget" hidden></span>
     <button class="icobtn mubtn" type="button" aria-label="Music on" title="Music"></button>
     <button class="icobtn sndbtn" type="button" aria-label="Sound effects on" title="Sound effects"></button>
     <button class="btn sm" type="button" id="gResign">Resign</button>
   </div></div>
   <div class="arena">
-    <div class="pl" id="p0"><div class="hd"><span class="pav" id="a0"></span><div class="who"><b id="n0">You</b><span id="e0"></span></div></div><div class="scrow"><span class="dot blk" id="d0"></span><div class="sc num" id="s0">0</div></div><div class="clk num" id="k0" hidden>10:00</div><div class="cmb" id="c0"></div><div class="tt" id="t0"></div>
+    <div class="pl" id="p0"><div class="hd"><span class="pav" id="a0"></span><div class="who"><b id="n0">You</b><span id="e0"></span></div></div><div class="scrow"><span class="dot blk" id="d0"></span><div class="sc num" id="s0">0</div></div><div class="tgbar" id="tg0" hidden><i></i></div><div class="clk num" id="k0" hidden>10:00</div><div class="cmb" id="c0"></div><div class="tt" id="t0"></div>
       <div class="legend"><div><span>1 line</span><b>10</b></div><div><span>2 lines at once</span><b>30</b></div><div><span>3 lines at once</span><b>60</b></div><div><span>Combo 2 · 3 · 4</span><b>×1.25 · 1.5 · 1.75</b></div><div><span>Rival can't play</span><b>+25</b></div></div></div>
     <div class="center">
       <div class="stakebar" id="stakebar" hidden></div>
@@ -517,7 +553,7 @@ body{transition:background-color .6s}
       <div class="tray" id="tray"></div>
       <div class="nextq" id="nextq"><span id="nqLabel">Next</span><div class="nq" id="nq"></div></div>
     </div>
-    <div class="side"><div class="pl" id="p1"><div class="hd"><span class="pav" id="a1"></span><div class="who"><b id="n1">Bot</b><span id="e1"></span></div></div><div class="scrow"><span class="dot blk" id="d1"></span><div class="sc num" id="s1">0</div></div><div class="clk num" id="k1" hidden>10:00</div><div class="cmb" id="c1"></div><div class="tt" id="t1"></div></div>
+    <div class="side"><div class="pl" id="p1"><div class="hd"><span class="pav" id="a1"></span><div class="who"><b id="n1">Bot</b><span id="e1"></span></div></div><div class="scrow"><span class="dot blk" id="d1"></span><div class="sc num" id="s1">0</div></div><div class="tgbar" id="tg1" hidden><i></i></div><div class="clk num" id="k1" hidden>10:00</div><div class="cmb" id="c1"></div><div class="tt" id="t1"></div></div>
       <div class="chat" id="chat" hidden><div class="chd"><b>Chat</b><button type="button" class="link" id="mute">Mute</button></div><div class="log" id="log" aria-live="polite"></div>
         <form class="cin" id="cin"><input class="f" id="ctext" maxlength="120" autocomplete="off" placeholder="Say something nice…" aria-label="Message"><button class="btn main sm" type="submit">Send</button></form></div></div>
   </div>

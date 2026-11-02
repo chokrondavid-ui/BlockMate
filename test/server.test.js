@@ -26,7 +26,7 @@ function client() {
 function socket(token) {
   const ws = new WebSocket(base.replace('http', 'ws') + '/ws?t=' + token); const inbox = []; const waiters = [];
   ws.onmessage = e => { const m = JSON.parse(e.data); const i = waiters.findIndex(w => w.t === m.t); if (i >= 0) waiters.splice(i, 1)[0].res(m); else inbox.push(m); };
-  const next = (t, ms = 3000) => { const i = inbox.findIndex(m => m.t === t); if (i >= 0) return Promise.resolve(inbox.splice(i, 1)[0]); return new Promise((res, rej) => { waiters.push({ t, res }); setTimeout(() => rej(new Error('timeout waiting for ' + t)), ms); }); };
+  const next = (t, ms = 3000) => { const i = inbox.findIndex(m => m.t === t); if (i >= 0) return Promise.resolve(inbox.splice(i, 1)[0]); return new Promise((res, rej) => { const w = { t, res }; waiters.push(w); setTimeout(() => { const k = waiters.indexOf(w); if (k >= 0) { waiters.splice(k, 1); rej(new Error('timeout waiting for ' + t)); } }, ms); }); };
   return { ws, next, send: o => ws.send(JSON.stringify(o)), open: new Promise(r => ws.onopen = r) };
 }
 
@@ -241,4 +241,69 @@ test('ranked risk: losing to Master costs earned coins, never bought ones; HANNA
   const b = client(); const mb = (await b.call('/api/me')).me; await b.call('/api/buy', { cat: 'skin', key: 'candy' }); // spend earned coins
   const left = (await b.call('/api/me')).me; if (left.earned < 25) assert.equal((await b.call('/api/solo/start', { level: 'hard', ranked: true }))._status, 400);
   const h = await b.call('/api/promo', { code: 'hannah' }); assert.equal(h.me.plus, true); assert.equal(h.plusDays, 36500);
+});
+
+test('engine: score target ends the game, single mode keeps the turn', () => {
+  const st = G.newState(12345, { target: 100 }); assert.equal(st.target, 100);
+  let n = 0; while (!st.over && n++ < 400) { const m = G.moves(st.board, st.tray)[0]; G.play(st, m.ti, m.r, m.c); }
+  if (st.reached != null) { assert.ok(st.scores[st.reached] >= 100); assert.ok(st.scores[1 - st.reached] < 100); }
+  const s1 = G.newState(777, { single: true }); const m = G.moves(s1.board, s1.tray)[0]; G.play(s1, m.ti, m.r, m.c); assert.equal(s1.turn, 0);
+  assert.equal(G.newState(1, { target: 123 }).target, 0, 'only known targets');
+});
+
+test('solo practice with a target; ranked ignores the target', async () => {
+  const a = client(); await a.call('/api/me');
+  const p = await a.call('/api/solo/start', { level: 'easy', ranked: false, target: 100 }); assert.equal(p.target, 100);
+  const st = G.newState(p.seed, { target: 100 }); const br = G.rng(G.botSeed(p.seed)); const hm = [];
+  while (!st.over) { if (st.turn === 0) { const m = G.moves(st.board, st.tray)[0]; hm.push({ ti: m.ti, r: m.r, c: m.c }); G.play(st, m.ti, m.r, m.c); } else { const m = G.botMove(st, 'easy', br); G.play(st, m.ti, m.r, m.c); } }
+  const f = await a.call('/api/solo/finish', { id: p.id, moves: hm }); assert.equal(f._status, 200); assert.deepEqual(f.scores, st.scores);
+  const r = await a.call('/api/solo/start', { level: 'easy', ranked: true, target: 100 }); assert.equal(r.target, 0);
+});
+
+test('daily challenge: same seed for everyone, one attempt, leaderboard and coins', async () => {
+  const a = client(), b = client(); await a.call('/api/me'); await b.call('/api/me');
+  const c0 = await a.call('/api/challenge'); assert.equal(c0.played, false);
+  const sa = await a.call('/api/challenge/start', {}), sb = await b.call('/api/challenge/start', {}); assert.equal(sa.seed, sb.seed);
+  assert.equal((await a.call('/api/challenge/start', {}))._status, 400, 'one attempt');
+  const st = G.newState(sa.seed, { single: true }); const mv = [];
+  while (!st.over && mv.length < 30) { const m = G.moves(st.board, st.tray)[0]; mv.push({ ti: m.ti, r: m.r, c: m.c }); G.play(st, m.ti, m.r, m.c); }
+  assert.equal((await a.call('/api/challenge/finish', { day: sa.day, moves: [{ ti: 0, r: 99, c: 0 }] }))._status, 400, 'illegal run refused');
+  const me0 = (await a.call('/api/me')).me;
+  const f = await a.call('/api/challenge/finish', { day: sa.day, moves: mv }); assert.equal(f.score, st.scores[0]);
+  assert.equal(f.coins, Math.min(C.DAILY_CHALLENGE.maxCoins, Math.floor(st.scores[0] / C.DAILY_CHALLENGE.coinsPer)));
+  assert.equal(f.me.coins, me0.coins + f.coins);
+  assert.equal((await a.call('/api/challenge/finish', { day: sa.day, moves: mv }))._status, 400, 'no second finish');
+  const c1 = await a.call('/api/challenge'); assert.equal(c1.played, true); assert.equal(c1.score, st.scores[0]); assert.ok(c1.top.some(x => x.me && x.score === st.scores[0]));
+});
+
+test('portal mode: CORS for portal origins, token in /api/me, bearer auth', async () => {
+  const o = 'https://games.crazygames.com';
+  const pre = await fetch(base + '/api/me', { method: 'OPTIONS', headers: { Origin: o, 'Access-Control-Request-Method': 'POST' } });
+  assert.equal(pre.status, 204); assert.equal(pre.headers.get('access-control-allow-origin'), o);
+  const r1 = await fetch(base + '/api/me', { headers: { Origin: o, 'X-BM-Portal': 'crazygames' } }); const j1 = await r1.json();
+  assert.equal(r1.headers.get('access-control-allow-origin'), o); assert.ok(j1.token);
+  const r2 = await fetch(base + '/api/me', { headers: { Origin: o, 'X-BM-Portal': 'crazygames', Authorization: 'Bearer ' + j1.token } }); const j2 = await r2.json();
+  assert.equal(j2.me.id, j1.me.id, 'same account with the token');
+  const bad = await fetch(base + '/api/me', { headers: { Origin: 'https://evil.example' } }); assert.equal(bad.headers.get('access-control-allow-origin'), null);
+  const adm = await fetch(base + '/api/admin/stats', { headers: { Origin: o } }); assert.equal(adm.headers.get('access-control-allow-origin'), null);
+});
+
+test('online: queue only matches the same speed; friend games keep time and target', async () => {
+  const a = client(), b = client(), c = client(); await a.call('/api/me'); const mb = (await b.call('/api/me')).me; await c.call('/api/me');
+  const A = socket(a.token()), B = socket(b.token()), Cc = socket(c.token()); await A.open; await B.open; await Cc.open; await A.next('hello'); await B.next('hello'); await Cc.next('hello');
+  A.send({ t: 'queue', time: 150000 }); Cc.send({ t: 'queue', time: 450000 }); await A.next('queued'); await Cc.next('queued');
+  await assert.rejects(A.next('start', 1500), 'different speeds never meet');
+  B.send({ t: 'queue', time: 150000 }); const [sa] = await Promise.all([A.next('start'), B.next('start')]);
+  assert.equal(sa.state.time, 150000); assert.equal(sa.state.target, 0); assert.ok(sa.state.clocks[0] <= 150000 && sa.state.clocks[0] > 140000);
+  A.send({ t: 'resign' }); await A.next('end'); await B.next('end'); A.send({ t: 'leave' }); B.send({ t: 'leave' }); Cc.send({ t: 'cancel' });
+  await a.call('/api/friends/add', { name: mb.name });
+  A.send({ t: 'invite', to: mb.id, stake: 0, time: 450000, target: 200 }); const inv = await B.next('invited'); assert.deepEqual(inv.set, { time: 450000, target: 200 });
+  B.send({ t: 'accept', inv: inv.inv }); const [s2] = await Promise.all([A.next('start'), B.next('start')]);
+  assert.equal(s2.state.target, 200); assert.equal(s2.state.time, 450000);
+  // Play to the end: the first to 200 wins.
+  const byIdx = s2.you === 0 ? [A, B] : [B, A]; let state = s2.state; let n = 0;
+  while (!state.over && n++ < 300) { const m = G.moves(state.board, state.tray)[0]; byIdx[state.turn].send({ t: 'move', ti: m.ti, r: m.r, c: m.c }); const [x] = await Promise.all([A.next('move'), B.next('move')]); state = x.state; }
+  const [ea] = await Promise.all([A.next('end'), B.next('end')]); assert.equal(ea.target, 200);
+  if (ea.reached != null) assert.ok(ea.scores[ea.reached] >= 200);
+  A.ws.close(); B.ws.close(); Cc.ws.close();
 });

@@ -31,13 +31,16 @@ function Online({ accounts, db, log, track }) {
 
   function view(m) {
     const st = m.st;
-    return { id: m.id, kind: m.kind, stake: m.stake, board: st.board, tray: st.tray, next: st.next, scores: st.scores, combo: st.combo, best: st.best, turn: st.turn, over: st.over, stuck: st.stuck, clocks: clocks(m), running: !m.ended && !st.over, now: Date.now(), moves: st.log.length };
+    return { id: m.id, kind: m.kind, stake: m.stake, time: m.set.time, target: m.set.target, reached: st.reached, board: st.board, tray: st.tray, next: st.next, scores: st.scores, combo: st.combo, best: st.best, turn: st.turn, over: st.over, stuck: st.stuck, clocks: clocks(m), running: !m.ended && !st.over, now: Date.now(), moves: st.log.length };
   }
   // Chess clocks: each player has 10 minutes for the whole game; only the player to move is counting down.
   function clocks(m) { const c = m.clock.slice(); if (!m.ended && !m.st.over) c[m.st.turn] = Math.max(0, c[m.st.turn] - (Date.now() - m.turnAt)); return c;
   }
 
-  function start(uidA, uidB, kind, stake) {
+  // opts: { time: ms per player, target: points to win (0 = classic) }
+  const settings = o => ({ time: C.TIME_CONTROLS.includes(o && o.time) ? o.time : C.CLOCK_MS, target: C.TARGETS.includes(o && o.target) ? o.target : 0 });
+  function start(uidA, uidB, kind, stake, opts) {
+    const set = settings(opts); if (kind === 'ranked') set.target = 0;
     const a = accounts.get(uidA), b = accounts.get(uidB);
     if (!a || !b || inMatch.has(a.id) || inMatch.has(b.id)) return false;
     if (stake) {
@@ -47,7 +50,7 @@ function Online({ accounts, db, log, track }) {
     leaveQueue(a.id); leaveQueue(b.id);
     const players = Math.random() < 0.5 ? [a.id, b.id] : [b.id, a.id];
     const seed = crypto.randomBytes(4).readUInt32BE(0);
-    const m = { id: 'm_' + crypto.randomBytes(8).toString('base64url'), kind, stake, players, cards: players.map(id => card(id === a.id ? a : b)), st: G.newState(seed), seed, clock: [C.CLOCK_MS, C.CLOCK_MS], turnAt: Date.now(), gone: [0, 0], rematch: [false, false], ended: false, ref: null, lastChat: [0, 0], chatN: [0, 0], lastPeek: [0, 0] };
+    const m = { id: 'm_' + crypto.randomBytes(8).toString('base64url'), kind, stake, players, cards: players.map(id => card(id === a.id ? a : b)), set, st: G.newState(seed, { target: set.target }), seed, clock: [set.time, set.time], turnAt: Date.now(), gone: [0, 0], rematch: [false, false], ended: false, ref: null, lastChat: [0, 0], chatN: [0, 0], lastPeek: [0, 0] };
     matchesIns.run(m.id, players[0], players[1], kind, stake, seed, Date.now());
     for (const id of players) inMatch.set(id, m);
     if (!G.moves(m.st.board, m.st.tray).length) { m.st.over = true; m.st.stuck = 0; m.st.scores[1] += G.BLOCK_BONUS; }
@@ -102,7 +105,7 @@ function Online({ accounts, db, log, track }) {
     });
     matchesEnd.run(st.scores[0], st.scores[1], res[0], Date.now(), m.id);
     for (const id of m.players) track('game_end', id, { mode: 'online', kind: m.kind });
-    m.players.forEach((id, i) => send(id, { t: 'end', reason, result: res[i], scores: st.scores, names: m.cards.map(c => c.name), elo: out[i].elo, coins: out[i].coins, boost: !!out[i].boost, bonus: out[i].bonus || 0, bonusWhy: out[i].bonusWhy || null, me: accounts.me(accounts.get(id)) }));
+    m.players.forEach((id, i) => send(id, { t: 'end', reason, result: res[i], scores: st.scores, reached: st.reached, target: m.set.target, names: m.cards.map(c => c.name), elo: out[i].elo, coins: out[i].coins, boost: !!out[i].boost, bonus: out[i].bonus || 0, bonusWhy: out[i].bonusWhy || null, me: accounts.me(accounts.get(id)) }));
     // The match stays attached for a minute so the players can ask for a rematch.
     m.closeAt = Date.now() + 60000;
   }
@@ -121,7 +124,7 @@ function Online({ accounts, db, log, track }) {
     queue.sort((x, y) => x.since - y.since);
     for (let i = 0; i < queue.length; i++) for (let j = i + 1; j < queue.length; j++) {
       const A = queue[i], B = queue[j]; const wait = (t - Math.min(A.since, B.since)) / 1000;
-      if (Math.abs(A.elo - B.elo) <= 100 + 40 * wait) { if (start(A.uid, B.uid, 'ranked', 0)) { i = -1; break; } }
+      if (A.time === B.time && Math.abs(A.elo - B.elo) <= 100 + 40 * wait) { if (start(A.uid, B.uid, 'ranked', 0, { time: A.time })) { i = -1; break; } }
     }
     for (const [k, v] of invites) if (t - v.at > INVITE_MS) { invites.delete(k); send(v.from, { t: 'invite_gone', inv: k, why: 'expired' }); send(v.to, { t: 'invite_gone', inv: k }); }
     for (const [k, v] of rooms) if (t - v.at > ROOM_MS) rooms.delete(k);
@@ -136,7 +139,7 @@ function Online({ accounts, db, log, track }) {
       case 'queue': {
         if (m && !m.ended) return err(uid, 'You are already in a game.');
         if (m) release(m);
-        const u = accounts.get(uid); leaveQueue(uid); queue.push({ uid, elo: u.elo, since: Date.now() }); send(uid, { t: 'queued', players: queue.length }); return;
+        const u = accounts.get(uid); leaveQueue(uid); const time = settings(msg).time; queue.push({ uid, elo: u.elo, since: Date.now(), time }); send(uid, { t: 'queued', players: queue.filter(q => q.time === time).length, time }); return;
       }
       case 'cancel': leaveQueue(uid); send(uid, { t: 'unqueued' }); return;
       case 'move': if (!m || !move(m, p, msg.ti, msg.r, msg.c)) send(uid, { t: 'reject', state: m ? view(m) : null }); return;
@@ -145,7 +148,7 @@ function Online({ accounts, db, log, track }) {
       case 'rematch': {
         if (!m || !m.ended) return; m.rematch[p] = true; const o = m.players[1 - p];
         if (!inMatch.has(o) || inMatch.get(o) !== m) return send(uid, { t: 'rematch_no' });
-        if (m.rematch[1 - p]) { release(m); start(m.players[1], m.players[0], m.kind === 'ranked' ? 'ranked' : 'friend', m.stake); }
+        if (m.rematch[1 - p]) { release(m); start(m.players[1], m.players[0], m.kind === 'ranked' ? 'ranked' : 'friend', m.stake, m.set); }
         else send(o, { t: 'rematch_ask' });
         return;
       }
@@ -155,15 +158,15 @@ function Online({ accounts, db, log, track }) {
         if (!isOnline(to)) return err(uid, 'Your friend is offline. Send them a game link instead.');
         if (inMatch.has(to) && !inMatch.get(to).ended) return err(uid, 'Your friend is in a game right now.');
         const me = accounts.get(uid); if (stake && accounts.earned(me) < stake) return err(uid, 'You need ' + stake + ' earned Blockcoins for this bet.');
-        const k = crypto.randomBytes(6).toString('base64url'); invites.set(k, { from: uid, to, stake, at: Date.now() }); track('invite_sent', uid, { stake });
-        send(to, { t: 'invited', inv: k, from: card(me), stake }); send(uid, { t: 'invite_sent', inv: k, to }); return;
+        const k = crypto.randomBytes(6).toString('base64url'); invites.set(k, { from: uid, to, stake, set: settings(msg), at: Date.now() }); track('invite_sent', uid, { stake });
+        send(to, { t: 'invited', inv: k, from: card(me), stake, set: invites.get(k).set }); send(uid, { t: 'invite_sent', inv: k, to }); return;
       }
       case 'accept': case 'decline': {
         const v = invites.get(String(msg.inv || '')); if (!v || v.to !== uid) return err(uid, 'This challenge has expired.');
         invites.delete(msg.inv);
         if (msg.t === 'decline') return send(v.from, { t: 'invite_gone', inv: msg.inv, why: 'declined' });
         for (const id of [v.from, v.to]) { const x = inMatch.get(id); if (x && x.ended) release(x); }
-        if (!start(v.from, v.to, 'friend', v.stake)) err(uid, 'Could not start this game.'); else track('invite_accepted', uid, { from: v.from });
+        if (!start(v.from, v.to, 'friend', v.stake, v.set)) err(uid, 'Could not start this game.'); else track('invite_accepted', uid, { from: v.from });
         return;
       }
       case 'room_create': {
@@ -171,7 +174,7 @@ function Online({ accounts, db, log, track }) {
         if (stake && accounts.earned(me) < stake) return err(uid, 'You need ' + stake + ' earned Blockcoins for this bet.');
         for (const [k, v] of rooms) if (v.uid === uid) rooms.delete(k);
         let code; do code = crypto.randomBytes(4).toString('hex').toUpperCase().slice(0, 6); while (rooms.has(code));
-        rooms.set(code, { uid, stake, at: Date.now() }); track('link_created', uid, { stake }); send(uid, { t: 'room', code, stake }); return;
+        rooms.set(code, { uid, stake, set: settings(msg), at: Date.now() }); track('link_created', uid, { stake }); send(uid, { t: 'room', code, stake, set: rooms.get(code).set }); return;
       }
       case 'room_cancel': for (const [k, v] of rooms) if (v.uid === uid) rooms.delete(k); return;
       case 'room_join': {
@@ -182,7 +185,7 @@ function Online({ accounts, db, log, track }) {
         for (const id of [v.uid, uid]) { const x = inMatch.get(id); if (x && x.ended) release(x); }
         const joiner = accounts.get(uid), owner = accounts.get(v.uid);
         rooms.delete(code);
-        if (!start(v.uid, uid, 'friend', v.stake)) err(uid, 'Could not start this game.');
+        if (!start(v.uid, uid, 'friend', v.stake, v.set)) err(uid, 'Could not start this game.');
         else {
           const fresh = !!joiner && joiner.st.games === 0 && Date.now() - joiner.created < 3600e3;
           track('link_join', uid, { by: v.uid, byName: owner && owner.name, fresh });

@@ -54,9 +54,14 @@
 
   // A new game. `draw` is the shared piece stream; both players see the same tray.
   // `next` holds the one piece that will replace the piece played, so you can see the three choices you leave your rival.
-  function newState(seed) {
+  // opts.target: the first player to reach this score wins (0 = classic, play until someone is stuck).
+  // opts.single: one player alone, score as much as possible until no piece fits (the daily challenge).
+  const TARGETS = [0, 100, 200, 500];
+  function newState(seed, opts) {
+    opts = opts || {};
     const draw = rng(seed); const tray = [drawPiece(draw), drawPiece(draw), drawPiece(draw)]; const next = [drawPiece(draw)];
-    return { seed, draw, board: Array(N * N).fill(0), tray, next, scores: [0, 0], combo: [0, 0], best: [0, 0], turn: 0, over: false, stuck: null, log: [] };
+    return { seed, draw, board: Array(N * N).fill(0), tray, next, scores: [0, 0], combo: [0, 0], best: [0, 0], turn: 0, over: false, stuck: null, reached: null,
+      target: TARGETS.includes(opts.target) ? opts.target : 0, single: !!opts.single, log: [] };
   }
 
   // Plays move {ti,r,c} for the player whose turn it is. Returns the move details or null if illegal.
@@ -65,10 +70,11 @@
     const si = st.tray[ti]; if (si == null || !Number.isInteger(r) || !Number.isInteger(c) || !fits(st.board, si, r, c)) return null;
     const p = st.turn; const res = apply(st.board, si, r, c, p + 1, st.combo[p]);
     st.scores[p] += res.gain; st.combo[p] = res.combo; st.best[p] = Math.max(st.best[p], res.combo);
-    st.board = res.after; st.tray = st.tray.slice(); st.tray[ti] = st.next[0]; st.next = [drawPiece(st.draw)]; st.turn = 1 - p;
+    st.board = res.after; st.tray = st.tray.slice(); st.tray[ti] = st.next[0]; st.next = [drawPiece(st.draw)]; if (!st.single) st.turn = 1 - p;
     const mv = { p, ti, si, r, c, gain: res.gain, lines: res.lines, combo: res.combo, cleared: res.cleared };
     st.log.push({ ti, r, c });
-    if (!moves(st.board, st.tray).length) { st.over = true; st.stuck = st.turn; st.scores[1 - st.turn] += BLOCK_BONUS; }
+    if (st.target && st.scores[p] >= st.target) { st.over = true; st.reached = p; return mv; }
+    if (!moves(st.board, st.tray).length) { st.over = true; st.stuck = st.turn; if (!st.single) st.scores[1 - st.turn] += BLOCK_BONUS; }
     return mv;
   }
   const resultFor = (st, p) => st.scores[p] > st.scores[1 - p] ? 1 : st.scores[p] < st.scores[1 - p] ? 0 : 0.5;
@@ -92,8 +98,8 @@
   }
 
   // Replays a solo game (human is player 0) from its seed and the human's moves.
-  function replaySolo(seed, level, humanMoves, resigned) {
-    const st = newState(seed), br = rng(botSeed(seed)); let i = 0;
+  function replaySolo(seed, level, humanMoves, resigned, opts) {
+    const st = newState(seed, opts), br = rng(botSeed(seed)); let i = 0;
     if (!moves(st.board, st.tray).length) { st.over = true; st.stuck = 0; st.scores[1] += BLOCK_BONUS; }
     let guard = 0;
     while (!st.over && guard++ < 400) {
@@ -109,6 +115,13 @@
     return { ok: true, st, result: resigned ? 0 : resultFor(st, 0) };
   }
 
+  // Replays a single-player run (daily challenge). Returns the final state and score.
+  function replaySingle(seed, mvs) {
+    const st = newState(seed, { single: true });
+    for (let i = 0; i < mvs.length; i++) { if (st.over) return { ok: false, reason: 'extra moves' }; if (!play(st, mvs[i].ti, mvs[i].r, mvs[i].c)) return { ok: false, reason: 'illegal move ' + i }; }
+    return { ok: true, st, score: st.scores[0], finished: st.over };
+  }
+
   const eloDelta = (r, opp, res, k) => Math.round((k || 32) * (res - 1 / (1 + Math.pow(10, (opp - r) / 400))));
-  return { N, BLOCK_BONUS, SHAPES, DIM, rng, botSeed, drawPiece, lineBase, comboMult, fits, apply, moves, canPlace, newState, play, resultFor, botMove, replaySolo, eloDelta };
+  return { N, BLOCK_BONUS, SHAPES, DIM, rng, botSeed, drawPiece, lineBase, comboMult, fits, apply, moves, canPlace, newState, play, resultFor, botMove, replaySolo, replaySingle, eloDelta, TARGETS };
 });

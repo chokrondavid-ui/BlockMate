@@ -12,14 +12,43 @@ const store = { get(k, d) { try { const v = localStorage.getItem(k); return v ==
 let uid = 0;
 
 // ---------- server ----------
+// On game portals (CrazyGames, Poki) the files are hosted by the portal and the API stays on dbcblockmate.com.
+// Cookies don't work in their frame, so the session token is kept in local storage and sent as a header.
+const PORTAL = window.BM_PORTAL || null;
+const API_BASE = window.BM_API || '';
+let TOKEN = PORTAL ? store.get('bm-token', '') : '';
 async function api(path, data) {
-  const r = await fetch(path, data === undefined ? { credentials: 'same-origin' } : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+  const headers = {}; if (data !== undefined) headers['Content-Type'] = 'application/json';
+  if (PORTAL) { headers['X-BM-Portal'] = PORTAL; if (TOKEN) headers.Authorization = 'Bearer ' + TOKEN; }
+  const r = await fetch(API_BASE + path, Object.assign({ credentials: PORTAL ? 'omit' : 'same-origin', headers }, data === undefined ? {} : { method: 'POST', body: JSON.stringify(data) }));
   let j = {}; try { j = await r.json(); } catch (e) {}
+  if (j.token && PORTAL) { TOKEN = j.token; store.set('bm-token', TOKEN); }
   if (j.me) setMe(j.me);
   if (!r.ok) throw new Error(j.error || 'Connection problem. Try again.');
   return j;
 }
 let P = null, CONFIG = { payments: 'off', turnMs: 25000 };
+// Portal SDK (CrazyGames v3 or Poki): loading, gameplay start/stop and an ad break between games.
+const PSDK = { cg: null, poki: null, played: false, inGame: false,
+  async init() {
+    try { if (PORTAL === 'crazygames' && window.CrazyGames && window.CrazyGames.SDK) { await window.CrazyGames.SDK.init(); this.cg = window.CrazyGames.SDK; } } catch (e) { console.warn('CrazyGames SDK', e); }
+    try { if (PORTAL === 'poki' && window.PokiSDK) { await window.PokiSDK.init(); this.poki = window.PokiSDK; } } catch (e) { console.warn('Poki SDK', e); }
+    try { if (this.cg) this.cg.game.loadingStart(); } catch (e) {}
+  },
+  loaded() { try { if (this.cg) this.cg.game.loadingStop(); if (this.poki) this.poki.gameLoadingFinished(); } catch (e) {} },
+  start() { if (this.inGame) return; this.inGame = true; try { if (this.cg) this.cg.game.gameplayStart(); if (this.poki) this.poki.gameplayStart(); } catch (e) {} },
+  stop() { if (!this.inGame) return; this.inGame = false; this.played = true; try { if (this.cg) this.cg.game.gameplayStop(); if (this.poki) this.poki.gameplayStop(); } catch (e) {} },
+  // Ad break before a new game, only after a game has been played. Sound and music are paused meanwhile.
+  async midgame() {
+    if (!this.played || !(this.cg || this.poki)) return;
+    const snd = SND.on, mu = MUS.cur && !MUS.cur.paused ? MUS.cur : null;
+    const mute = () => { SND.on = false; if (mu) mu.pause(); }, back = () => { SND.on = snd; if (mu && MUS.on) mu.play().catch(() => {}); };
+    try {
+      if (this.poki) { await this.poki.commercialBreak(mute); back(); return; }
+      await new Promise(done => { const t = setTimeout(done, 40000); this.cg.ad.requestAd('midgame', { adStarted: mute, adFinished: () => { clearTimeout(t); done(); }, adError: () => { clearTimeout(t); done(); } }); });
+    } catch (e) {}
+    back();
+  } };
 function setMe(me) {
   P = me;
   for (const cat of Object.keys(CATS)) { const it = CATS[cat].data[P.eq[cat]]; if (!it || (it.plus && !P.plus)) P.eq[cat] = C.DEFAULT_EQ[cat]; }
@@ -29,7 +58,8 @@ function setMe(me) {
 const NET = {
   ws: null, ready: false, wait: 1000, handlers: {},
   connect() {
-    try { this.ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); } catch (e) { return this.retry(); }
+    const base = API_BASE ? API_BASE.replace(/^http/, 'ws') : (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+    try { this.ws = new WebSocket(base + '/ws' + (PORTAL && TOKEN ? '?t=' + encodeURIComponent(TOKEN) : '')); } catch (e) { return this.retry(); }
     this.ws.onopen = () => { this.ready = true; this.wait = 1000; };
     this.ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (_) { return; } const h = this.handlers[m.t]; if (h) try { h(m); } catch (err) { console.error(err); } };
     this.ws.onclose = () => { const was = this.ready; this.ready = false; ONLINE.clear(); if (was && G && G.mode === 'online' && !G.over) status('Connection lost. Reconnecting…'); this.retry(); };
@@ -83,7 +113,7 @@ function renderSnd() { document.querySelectorAll('.sndbtn').forEach(b => { b.inn
 document.querySelectorAll('.sndbtn').forEach(b => b.addEventListener('click', () => { SND.on = !SND.on; store.set('bm-sound', SND.on ? 'on' : 'off'); if (SND.on) { SND.init(); SND.tick(); } renderSnd(); }));
 // Music: 4 epic tracks in games, 4 calm tracks elsewhere. Shuffled; when a track ends the next starts,
 // and a new shuffle begins once all 4 have played.
-const TRACKS = { menu: [1, 2, 3, 4].map(i => '/music/music-menu-' + i + '.mp4'), game: [1, 2, 3, 4].map(i => '/music/music-game-' + i + '.mp4') };
+const TRACKS = { menu: [1, 2, 3, 4].map(i => API_BASE + '/music/music-menu-' + i + '.mp4'), game: [1, 2, 3, 4].map(i => API_BASE + '/music/music-game-' + i + '.mp4') };
 const MUS = { on: store.get('bm-music', 'on') !== 'off', want: 'menu', mode: null, cur: null, queue: { menu: [], game: [] }, last: {}, started: false,
   vol(k) { return k === 'game' ? .32 : .42; },
   fade(a, to, ms, done) { clearInterval(a._f); const from = a.volume, t0 = performance.now(); a._f = setInterval(() => { const k = Math.min(1, (performance.now() - t0) / ms); a.volume = Math.max(0, Math.min(1, from + (to - from) * k)); if (k >= 1) { clearInterval(a._f); if (done) done(); } }, 40); },
@@ -128,7 +158,8 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overla
 
 // ---------- payments ----------
 function payNote() { return CONFIG.payments === 'demo' ? '<p class="note" style="text-align:center">Test server: payments are simulated, nothing is charged.</p>' : CONFIG.payments === 'off' ? '<p class="note" style="text-align:center">Payments open very soon.</p>' : '<p class="note" style="text-align:center">Secure payment by Stripe. Card, Apple Pay, Google Pay.</p>'; }
-function checkoutSheet(pid, what) {
+const portalNoShop = () => openSheet(`<h3>Not available here</h3><p>Purchases are not available in this version of Blockmate. Earn Blockcoins by playing, with the daily reward and the daily challenge.</p><div class="acts"><button class="btn main" type="button" id="x">OK</button></div>`, s => s.querySelector('#x').onclick = closeSheet);
+function checkoutSheet(pid, what) { if (PORTAL) return portalNoShop();
   const p = PRODUCTS[pid]; const sub = p.kind === 'plus';
   openSheet(`<h3${sub ? ' class="gold"' : ''}>${esc(p.label.replace(' · ', ' '))}</h3><p>${esc(what || '')}</p><div class="big num">${euro(p.cents)}${sub ? ` <span class="muted">/ ${p.interval}</span>` : ''}</div>
     <label class="waiver"><input type="checkbox" id="wv"> <span>I want my purchase delivered right away, and I understand that I then lose my 14-day right of withdrawal. I accept the <a href="/legal/cgv" target="_blank" rel="noopener">terms of sale</a>.</span></label>
@@ -138,7 +169,7 @@ function checkoutSheet(pid, what) {
         try { const r = await api('/api/checkout', { product: pid, waiver: true }); if (r.url) { location.href = r.url; return; } closeSheet(); SND.win(); toast(p.label + ' added (test payment)'); renderView(); }
         catch (e) { toast(e.message); pay.disabled = false; pay.textContent = (sub ? 'Subscribe ' : 'Pay ') + euro(p.cents); } }; });
 }
-function plusSheet(reason) {
+function plusSheet(reason) { if (PORTAL && !P.plus) return portalNoShop();
   const on = P.plus;
   if (on) {
     const until = new Date(P.plusUntil).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
@@ -160,7 +191,7 @@ if (!LEVELS[soloLvl]) soloLvl = 'medium';
 function setTab(t) { tab = t; document.querySelectorAll('[data-tab]').forEach(x => { if (x.dataset.tab === t) x.setAttribute('aria-current', 'page'); else x.removeAttribute('aria-current'); }); renderView(); window.scrollTo(0, 0); }
 document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => setTab(b.dataset.tab)));
 $('pillElo').onclick = () => { setTab('profile'); setTimeout(() => { const d = $('g-rank'); if (d) { d.open = true; d.scrollIntoView({ block: 'center' }); } }, 30); };
-$('pillCoins').onclick = () => { shopCat = 'store'; setTab('shop'); };
+$('pillCoins').onclick = () => { shopCat = PORTAL ? 'featured' : 'store'; setTab('shop'); };
 $('home').onclick = e => { e.preventDefault(); if (!G) setTab('play'); };
 function renderView() { if (!P || G) return; renderTop(); renderSnd(); renderMu(); MUS.go('menu'); ({ play: viewPlay, friends: viewFriends, rank: viewRank, shop: viewShop, profile: viewProfile })[tab]($('view')); }
 
@@ -176,26 +207,39 @@ async function loadFriends(force) {
   try { const j = await api('/api/friends'); FR.rows = j.rows; FR.at = Date.now(); for (const f of j.rows) if (f.online) ONLINE.add(f.id); else ONLINE.delete(f.id); if (!G && tab === 'friends') renderView(); } catch (e) {}
 }
 
-function artHtml(lvl) { const L = LEVELS[lvl]; let s = lvl.length * 97 + 13; const r = () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; const a = C.S('a', L.col, 0); let h = '';
-  for (let i = 0; i < 128; i++) { const v = r(); h += v < .26 ? blkHtml(a, 0) : v < .4 ? blkHtml(RIVAL, 0) : '<i style="background:rgba(255,255,255,.035)"></i>'; } return h; }
+// ---------- play: pick a mode, then its options (like OpenFront) ----------
+const fmtTime = ms => Math.floor(ms / 60000) + ':' + String(Math.round(ms % 60000 / 1000)).padStart(2, '0');
+const targetLabel = t => t ? 'First to ' + t : 'Classic';
+const PREF = (() => { let p = {}; try { p = JSON.parse(store.get('bm-pref', '{}')) || {}; } catch (e) {} return Object.assign({ time: C.CLOCK_MS, target: 0, stake: 0, level: 'medium', ranked: true, soloTarget: 0, soloClock: 0 }, p); })();
+const savePref = () => store.set('bm-pref', JSON.stringify(PREF));
+// A row of choices. opts: [[value, label, disabled?]]
+const seg = (name, opts, cur) => `<div class="seg wide" role="group" aria-label="${esc(name)}">${opts.map(([v, l, dis]) => `<button type="button" data-k="${esc(name)}" data-v="${v}" aria-pressed="${v === cur}" ${dis ? 'disabled' : ''}>${l}</button>`).join('')}</div>`;
+const bindSeg = (s, fn) => s.querySelectorAll('.seg [data-k]').forEach(b => b.onclick = () => { SND.tick(); fn(b.dataset.k, isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v); });
+const TIME_OPTS = () => C.TIME_CONTROLS.map(t => [t, fmtTime(t) + ' each']);
+const TARGET_OPTS = () => C.TARGETS.map(t => [t, t ? t + ' pts' : 'Classic']);
+
+const MODES = [
+  { k: 'solo', name: 'Solo vs bots', sub: 'Easy · Medium · Hard', col: '#3E8BFF' },
+  { k: 'online', name: 'Online ranked', sub: 'Climb from Bronze to Master', col: '#F2781C', live: true },
+  { k: 'daily', name: 'Daily challenge', sub: 'Same pieces for everyone', col: '#FFC94A' },
+  { k: 'friend', name: 'Play a friend', sub: 'Invite or send a link', col: '#E8457A' },
+  { k: 'local', name: 'Same screen', sub: 'Two players, one device', col: '#1FCB9C' }
+];
+function modeArt(col, seed) { let s = seed * 97 + 13; const r = () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; const a = C.S('a', col, 0); let h = '';
+  for (let i = 0; i < 64; i++) { const v = r(); h += v < .24 ? blkHtml(a, 0) : v < .34 ? blkHtml(RIVAL, 0) : '<i style="background:rgba(255,255,255,.035)"></i>'; } return h; }
 
 function viewPlay(v) {
-  const d = P.daily, t = tierOf(P.elo), L = LEVELS[soloLvl];
+  const d = P.daily, t = tierOf(P.elo);
   const lb = LB.world; if (!lb || Date.now() - lb.at > 30000) loadLB('world');
+  if (!DAILY_CH || Date.now() - DAILY_CH.at > 60000) loadChallenge();
   const top = lb ? lb.rows.slice(0, 5) : [];
   const meIn = top.some(x => x.id === P.id);
+  const badge = k => k === 'online' ? `<span class="badge or">Live</span>` : k === 'daily' ? (DAILY_CH && DAILY_CH.played ? `<span class="badge dk num">${DAILY_CH.score != null ? DAILY_CH.score + ' pts' : 'Played'}</span>` : `<span class="badge gd">New today</span>`) : k === 'solo' && P.rec[PREF.level] ? `<span class="badge dk num">Best ${P.rec[PREF.level]}</span>` : '';
   v.innerHTML = `<div class="cols">
   <div class="stack">
-    <div class="news"><span class="badge gr">New</span><div class="grow"><b>Season 1 is live</b><span>Climb from Bronze to Master and unlock exclusive Plus skins. <a id="newsShop">Open the Shop →</a></span></div></div>
-    <div class="ident">${avatarHtml(P.eq.avatar, 48)}<div class="grow" style="min-width:0"><div class="nm">${esc(P.name)}</div><div class="muted">${embSvg(P.elo, 16)} <span style="color:${t[2]};font-weight:700">${t[1]}</span> · <span class="num">${P.elo}</span> Elo${P.plus ? ' · <span style="color:var(--gold)">Plus</span>' : ''}${P.boostUntil ? ` <span class="boostb" title="Ranked wins give double Elo until ${new Date(P.boostUntil).toLocaleString()}">×2 Elo boost</span>` : ''}</div></div><button class="btn sm" type="button" id="editP">${P.guest ? 'Sign up' : 'Edit profile'}</button></div>
-    <div class="panel"><div class="ph"><h2>Solo vs bots</h2><div class="seg" role="group" aria-label="Solo mode"><button type="button" data-rk="1" aria-pressed="${soloRanked}">Ranked</button><button type="button" data-rk="0" aria-pressed="${!soloRanked}">Practice</button></div></div>
-      <div class="modes">${Object.entries(LEVELS).map(([k, l]) => `<button class="mode" type="button" data-lvl="${k}" aria-pressed="${k === soloLvl}"><span class="art" aria-hidden="true">${artHtml(k)}</span><span class="shade"></span>
-        <span class="tl"><span class="badge or num">Win +${reward(k, 1, soloRanked)}</span>${soloRanked && l.loss ? `<span class="badge rd num">Loss ${sgn(l.loss)}</span>` : ''}${P.rec[k] ? `<span class="badge dk num">Best ${P.rec[k]}</span>` : ''}</span>
-        <span class="bt"><b>${l.name}</b><span class="num">${soloRanked ? (() => { const z = stakesOf(l.elo, l.win, l.loss); return `Elo: win ${sgn(z.eloWin)} · loss ${sgn(z.eloLoss)}`; })() : l.elo + ' Elo bot'}</span><em>${l.desc}</em></span></button>`).join('')}</div>
-      <p class="note" style="margin:0">${soloRanked ? 'Ranked: the harder the bot, the more Blockcoins you win, and the more you lose if you lose. Elo works like chess: beating a stronger bot earns a lot, losing to a weaker one costs a lot. Lost coins only come from coins won by playing, never from bought ones.' : 'Practice: no risk. Your Elo never changes, you never lose coins, and you earn a quarter of the Ranked reward.'}</p></div>
-    <button class="btn main big" type="button" id="playSolo">Play ${soloRanked ? 'ranked' : 'practice'} · ${L.name}</button>
-    <div class="actions3"><button class="btn" type="button" id="online">Online ranked<em class="badge or">Live</em></button><button class="btn" type="button" id="toFriends">Challenge a friend</button><button class="btn" type="button" id="localDuel">Duel on this screen</button></div>
-    ${(() => { const z = stakesOf(P.elo, C.ONLINE.win, C.ONLINE.loss); return `<p class="note" style="margin:0;text-align:center">Online ranked vs a player of your level: <b class="num" style="color:var(--green)">win ${sgn(z.eloWin)} Elo · ${sgn(z.coinsWin)} coins</b> · <b class="num" style="color:var(--red)">loss ${sgn(z.eloLoss)} Elo · ${sgn(z.coinsLoss)} coins</b></p>`; })()}
+    <div class="ident">${avatarHtml(P.eq.avatar, 48)}<div class="grow" style="min-width:0"><div class="nm">${esc(P.name)}</div><div class="muted">${embSvg(P.elo, 16)} <span style="color:${t[2]};font-weight:700">${t[1]}</span> · <span class="num">${P.elo}</span> Elo${P.plus ? ' · <span style="color:var(--gold)">Plus</span>' : ''}${P.boostUntil ? ` <span class="boostb" title="Ranked wins give double Elo until ${new Date(P.boostUntil).toLocaleString()}">×2 Elo boost</span>` : ''}</div></div><button class="btn sm" type="button" id="editP">${P.guest && !PORTAL ? 'Sign up' : 'Edit profile'}</button></div>
+    <div class="mtiles">${MODES.map((m, i) => `<button class="mtile${i < 2 ? ' big' : ''}" type="button" data-mode="${m.k}" style="--mc:${m.col}"><span class="art" aria-hidden="true">${modeArt(m.col, i + 3)}</span><span class="shade"></span>
+      <span class="tl">${badge(m.k)}</span><span class="bt"><b>${m.name}</b><em>${m.sub}</em></span><span class="go">Play</span></button>`).join('')}</div>
   </div>
   <div class="stack">
     ${d.ready ? `<div class="daily"><div class="ph" style="position:relative;z-index:1"><h3>Daily reward</h3><span class="badge or">Day ${d.day}/7</span></div>
@@ -210,23 +254,103 @@ function viewPlay(v) {
     <div class="panel"><div class="ph"><h3>Your season</h3></div><div class="stats"><div class="stat"><b class="num">${P.st.games}</b><span>Games</span></div><div class="stat"><b class="num">${P.st.wins}</b><span>Wins</span></div><div class="stat"><b class="num">${P.st.bestCombo || 0}</b><span>Best combo</span></div></div></div>
   </div></div>`;
   const c = v.querySelector('#claim'); if (c) c.onclick = async () => { c.disabled = true; try { const r = await api('/api/daily', {}); SND.win(); toast('+' + r.amount + ' Blockcoins'); renderView(); } catch (e) { toast(e.message); c.disabled = false; } };
-  v.querySelectorAll('[data-rk]').forEach(b => b.onclick = () => { soloRanked = b.dataset.rk === '1'; renderView(); });
-  v.querySelectorAll('[data-lvl]').forEach(b => { b.onclick = () => { soloLvl = b.dataset.lvl; store.set('bm-lvl', soloLvl); SND.tick(); renderView(); }; b.ondblclick = () => startSolo(b.dataset.lvl, soloRanked); });
-  v.querySelector('#playSolo').onclick = () => startSolo(soloLvl, soloRanked);
-  const oz = stakesOf(P.elo, C.ONLINE.win, C.ONLINE.loss);
-  v.querySelector('#online').title = `Against a player of your level: win ${sgn(oz.eloWin)} Elo and ${sgn(oz.coinsWin)} coins, lose ${sgn(oz.eloLoss)} Elo and ${sgn(oz.coinsLoss)} coins`;
-  v.querySelector('#localDuel').onclick = () => startLocal();
-  v.querySelector('#online').onclick = () => queueSheet();
-  v.querySelector('#toFriends').onclick = () => setTab('friends'); v.querySelector('#seeAll').onclick = () => setTab('rank');
-  v.querySelector('#editP').onclick = () => setTab('profile'); v.querySelector('#newsShop').onclick = () => setTab('shop');
+  v.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { SND.tick(); ({ solo: soloSheet, online: onlineSheet, daily: dailySheet, friend: () => friendSheet(null), local: localSheet })[b.dataset.mode](); });
+  v.querySelector('#seeAll').onclick = () => setTab('rank');
+  v.querySelector('#editP').onclick = () => setTab('profile');
+}
+
+function soloSheet() {
+  const draw = () => {
+    const L = LEVELS[PREF.level], rk = PREF.ranked;
+    openSheet(`<h3>Solo vs bots</h3>
+      <div class="dcards">${Object.entries(LEVELS).map(([k, l]) => { const z = stakesOf(l.elo, l.win, l.loss); return `<button type="button" class="dcard" data-lvl="${k}" aria-pressed="${k === PREF.level}" style="--mc:${l.col}"><i>${({ easy: 'Easy', medium: 'Medium', hard: 'Hard' })[k] || ''}</i><b>${l.name}</b><span class="num">${l.elo} Elo</span>
+        <span class="num"><em class="up">+${reward(k, 1, rk)}</em>${rk && l.loss ? ` <em class="dn">${sgn(l.loss)}</em>` : ''}</span>${rk ? `<small class="num">Elo ${sgn(z.eloWin)} / ${sgn(z.eloLoss)}</small>` : ''}</button>`; }).join('')}</div>
+      <p class="note" style="text-align:center;margin:-4px 0 0">${esc(L.desc)}</p>
+      <div class="opt"><span>Mode</span>${seg('ranked', [[1, 'Ranked'], [0, 'Practice']], rk ? 1 : 0)}</div>
+      ${rk ? '<p class="note" style="text-align:center">Ranked: classic rules, your Elo moves, and you can lose Blockcoins won by playing.</p>' : `
+      <div class="opt"><span>Win condition</span>${seg('target', TARGET_OPTS(), PREF.soloTarget)}</div>
+      <div class="opt"><span>Your clock</span>${seg('clock', [[0, 'Off']].concat(C.TIME_CONTROLS.map(t => [t, fmtTime(t)])), PREF.soloClock)}</div>
+      <p class="note" style="text-align:center">Practice: no risk, Elo unchanged, a quarter of the reward.</p>`}
+      <div class="acts"><button class="btn main" type="button" id="go">Play ${rk ? 'ranked' : 'practice'} · ${L.name}</button><button class="btn" type="button" id="x">Back</button></div>`,
+      s => { s.querySelector('#x').onclick = closeSheet;
+        s.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { PREF.level = b.dataset.lvl; savePref(); SND.tick(); draw(); });
+        bindSeg(s, (k, val) => { if (k === 'ranked') PREF.ranked = !!val; if (k === 'target') PREF.soloTarget = val; if (k === 'clock') PREF.soloClock = val; savePref(); draw(); });
+        s.querySelector('#go').onclick = () => { closeSheet(); startSolo(PREF.level, PREF.ranked, PREF.ranked ? {} : { target: PREF.soloTarget, clock: PREF.soloClock }); }; });
+  };
+  draw();
+}
+function onlineSheet() {
+  const draw = () => { const z = stakesOf(P.elo, C.ONLINE.win, C.ONLINE.loss);
+    openSheet(`<h3>Online ranked</h3><p>Play a real player near your level. Classic rules: highest score when someone is stuck wins.</p>
+      <div class="opt"><span>Game speed</span>${seg('time', TIME_OPTS(), PREF.time)}</div>
+      <div class="stakes"><div class="up"><b>Win</b><span class="num">${sgn(z.eloWin)} Elo · ${sgn(z.coinsWin)} coins</span></div><div class="dn"><b>Loss</b><span class="num">${sgn(z.eloLoss)} Elo · ${sgn(z.coinsLoss)} coins</span></div></div>
+      <p class="note" style="text-align:center">Against a player of your level. The exact stakes show when the game starts.</p>
+      <div class="acts"><button class="btn main" type="button" id="go">Find a match · ${fmtTime(PREF.time)}</button><button class="btn" type="button" id="x">Back</button></div>`,
+      s => { s.querySelector('#x').onclick = closeSheet; bindSeg(s, (k, val) => { PREF.time = val; savePref(); draw(); }); s.querySelector('#go').onclick = () => queueSheet(PREF.time); }); };
+  draw();
+}
+function localSheet() {
+  const draw = () => openSheet(`<h3>Same screen</h3><p>Two players take turns on this device.</p>
+    <div class="opt"><span>Game speed</span>${seg('time', TIME_OPTS(), PREF.time)}</div>
+    <div class="opt"><span>Win condition</span>${seg('target', TARGET_OPTS(), PREF.target)}</div>
+    <div class="acts"><button class="btn main" type="button" id="go">Start the duel</button><button class="btn" type="button" id="x">Back</button></div>`,
+    s => { s.querySelector('#x').onclick = closeSheet; bindSeg(s, (k, val) => { PREF[k] = val; savePref(); draw(); }); s.querySelector('#go').onclick = () => { closeSheet(); startLocal({ time: PREF.time, target: PREF.target }); }; });
+  draw();
+}
+// Play with a friend: pick the rules, then challenge an online friend or (on the website) create a link.
+function friendSheet(only) {
+  if (!FR.rows) loadFriends().then(() => { if (sheetKind === 'friend') draw(); });
+  const draw = () => {
+    const on = (FR.rows || []).filter(f => ONLINE.has(f.id) && (!only || f.id === only.id));
+    const list = only ? [only] : on;
+    openSheet(`<h3>${only ? 'Challenge ' + esc(only.name) : 'Play a friend'}</h3>
+      <div class="opt"><span>Game speed</span>${seg('time', TIME_OPTS(), PREF.time)}</div>
+      <div class="opt"><span>Win condition</span>${seg('target', TARGET_OPTS(), PREF.target)}</div>
+      <div class="opt"><span>Bet</span>${seg('stake', STAKES.map(s => [s, s ? s + ' coins' : 'Friendly', s > P.earned]), PREF.stake > P.earned ? 0 : PREF.stake)}</div>
+      <p class="note" style="text-align:center">You can bet up to <b class="num">${P.earned}</b> Blockcoins won by playing. The winner takes the stake. Friend games never change your Elo.</p>
+      ${list.length ? `<div class="list">${list.map(f => `<div class="li">${avatarHtml(f.av, 34)}<div class="who"><b>${esc(f.name)}</b><span class="num">${f.elo} Elo · ${ONLINE.has(f.id) ? 'Online' : 'Offline'}</span></div><button class="btn main sm" type="button" data-inv="${esc(f.id)}" ${ONLINE.has(f.id) ? '' : 'disabled'}>Challenge</button></div>`).join('')}</div>`
+        : `<p class="note" style="text-align:center">${FR.rows ? 'None of your friends is online right now.' : 'Loading your friends…'}</p>`}
+      <div class="acts">${PORTAL ? '' : `<button class="btn main" type="button" id="lnk">Create a game link</button>`}<button class="btn" type="button" id="x">Back</button></div>
+      ${PORTAL ? '' : `<p class="note" style="text-align:center">Bring someone new with a link: you win <b>${C.REFERRAL.sharer}</b> Blockcoins and they get <b>${C.REFERRAL.newcomer}</b>.</p>`}`,
+      s => { s.querySelector('#x').onclick = closeSheet; bindSeg(s, (k, val) => { PREF[k] = val; savePref(); draw(); });
+        const opts = () => ({ time: PREF.time, target: PREF.target, stake: PREF.stake > P.earned ? 0 : PREF.stake });
+        const l = s.querySelector('#lnk'); if (l) l.onclick = () => NET.send(Object.assign({ t: 'room_create' }, opts()));
+        s.querySelectorAll('[data-inv]').forEach(b => b.onclick = () => { const f = list.find(x => x.id === b.dataset.inv); const o = opts();
+          if (NET.send(Object.assign({ t: 'invite', to: f.id }, o))) openSheet(`<h3>Challenge sent</h3><div class="spin" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p>Waiting for <b>${esc(f.name)}</b> to accept…</p><p class="note" style="text-align:center">${rulesLine(o)}</p><p class="note" id="invMsg" style="text-align:center">The challenge expires after one minute.</p><div class="acts"><button class="btn" type="button" id="x">Close</button></div>`, s2 => s2.querySelector('#x').onclick = closeSheet, 'inviting'); });
+      }, 'friend');
+  };
+  draw();
+}
+const rulesLine = o => `${fmtTime(o.time || C.CLOCK_MS)} each · ${targetLabel(o.target || 0)}${o.stake ? ' · bet ' + o.stake + ' coins' : ''}`;
+
+// ---------- daily challenge ----------
+let DAILY_CH = null;
+async function loadChallenge() { try { DAILY_CH = Object.assign(await api('/api/challenge'), { at: Date.now() }); if (!G && tab === 'play') { const el = document.querySelector('[data-mode="daily"] .tl'); if (el) renderView(); } if (sheetKind === 'dailych') dailySheet(); } catch (e) {} }
+function dailySheet() {
+  const d = DAILY_CH;
+  openSheet(`<h3 class="gold">Daily challenge</h3><p>Same pieces for everyone today. You play alone: score as many points as you can before no piece fits. <b>One attempt per day.</b></p>
+    ${d ? `${d.played ? `<div class="big num">${d.score != null ? d.score : '—'} <span class="muted" style="font-size:16px">pts${d.rank ? ' · #' + d.rank + ' of ' + d.players : ''}</span></div>` : ''}
+    <div class="list">${d.top.length ? d.top.slice(0, 10).map((x, i) => `<div class="li${x.me ? ' me' : ''}"><span class="pos${i < 3 ? ' p' + (i + 1) : ''}">${i + 1}</span>${avatarHtml(x.av, 28)}<div class="who"><b>${esc(x.name)}${x.me ? ' (you)' : ''}</b></div><span class="elo num">${x.score}</span></div>`).join('') : '<div class="muted" style="text-align:center">Nobody has played yet today. Be the first!</div>'}</div>
+    <p class="note" style="text-align:center">${d.players} player${d.players === 1 ? '' : 's'} today · 1 Blockcoin per ${C.DAILY_CHALLENGE.coinsPer} points (up to ${C.DAILY_CHALLENGE.maxCoins})</p>` : '<p class="note" style="text-align:center">Loading…</p>'}
+    <div class="acts">${d && !d.played ? '<button class="btn main" type="button" id="go">Start today\'s challenge</button>' : d && d.played ? '<button class="btn main" type="button" id="share">Share my score</button>' : ''}<button class="btn" type="button" id="x">Back</button></div>`,
+    s => { s.querySelector('#x').onclick = closeSheet; const g = s.querySelector('#go'); if (g) g.onclick = () => { closeSheet(); startDaily(); };
+      const sh = s.querySelector('#share'); if (sh) sh.onclick = () => shareDaily(d.score, d.rank, d.players); }, 'dailych');
+  if (!d || Date.now() - d.at > 20000) loadChallenge();
+}
+function shareDaily(score, rank, players) {
+  const text = `Blockmate daily challenge · ${P.shopDay}\n${score} points${rank ? ' · #' + rank + ' of ' + players : ''}\nCan you beat me?`;
+  const url = PORTAL ? '' : location.origin;
+  api('/api/track', { e: 'share_native' }).catch(() => {});
+  if (navigator.share && !PORTAL) navigator.share({ title: 'Blockmate', text, url }).catch(() => {});
+  else (navigator.clipboard ? navigator.clipboard.writeText(text + (url ? '\n' + url : '')) : Promise.reject()).then(() => toast('Score copied: paste it anywhere!'), () => toast(text));
 }
 
 // ---------- online queue and challenges ----------
 let queueT = null;
-function queueSheet() {
-  if (!NET.send({ t: 'queue' })) return;
+function queueSheet(time) {
+  if (!NET.send({ t: 'queue', time })) return;
   const t0 = Date.now();
-  openSheet(`<h3>Finding a rival</h3><div class="spin" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p>Matching you with a player near <b class="num">${P.elo}</b> Elo.</p><div class="big num" id="qt">0:00</div>
+  openSheet(`<h3>Finding a rival</h3><div class="spin" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p>Matching you with a player near <b class="num">${P.elo}</b> Elo · <b>${fmtTime(time)} each</b>.</p><div class="big num" id="qt">0:00</div>
     <p class="note" id="qhint" style="text-align:center">${(() => { const z = stakesOf(P.elo, C.ONLINE.win, C.ONLINE.loss); return `Against a player of your level: win ${sgn(z.eloWin)} Elo and ${sgn(z.coinsWin)} coins, lose ${sgn(z.eloLoss)} Elo and ${sgn(z.coinsLoss)} coins.`; })()}</p>
     <div class="acts"><button class="btn" type="button" id="x">Cancel</button></div>`,
     s => { s.querySelector('#x').onclick = closeSheet; }, 'queue');
@@ -234,30 +358,14 @@ function queueSheet() {
   queueT = setInterval(() => {
     if (sheetKind !== 'queue') { clearInterval(queueT); return; }
     const s = Math.floor((Date.now() - t0) / 1000); const el = $('qt'); if (el) el.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-    if (s === 30) { const h = $('qhint'); if (h) { h.innerHTML = 'Few players are online right now. Keep waiting, or <a id="qbot">play the Pro bot</a> meanwhile.'; const a = $('qbot'); a.onclick = () => { closeSheet(); startSolo('medium', true); }; } }
+    if (s === 30) { const h = $('qhint'); if (h) { h.innerHTML = 'Few players are online at this speed right now. Keep waiting, try another speed, or <a id="qbot">play the Pro bot</a> meanwhile.'; const a = $('qbot'); a.onclick = () => { closeSheet(); startSolo('medium', true, {}); }; } }
   }, 500);
 }
-function challengeSheet(f) {
-  let stake = 0;
-  const draw = () => openSheet(`<h3>Challenge ${esc(f.name)}</h3><p>Friendly for fun, or put Blockcoins on the line. The winner takes the stake.</p>
-    <div class="seg" role="group" aria-label="Stake" style="width:100%">${STAKES.map(s => `<button type="button" data-st="${s}" aria-pressed="${s === stake}" ${s > P.earned ? 'disabled' : ''}>${s ? s + ' coins' : 'Friendly'}</button>`).join('')}</div>
-    <p class="note" style="text-align:center">You can bet <b class="num">${P.earned}</b> Blockcoins: the ones you won by playing. Blockcoins bought in the Store can't be bet, and no Blockcoins can be cashed out.</p>
-    <div class="acts"><button class="btn main" type="button" id="go">${stake ? 'Bet ' + stake + ' and challenge' : 'Send challenge'}</button><button class="btn" type="button" id="x">Cancel</button></div>`,
-    s => { s.querySelectorAll('[data-st]').forEach(b => b.onclick = () => { stake = +b.dataset.st; draw(); }); s.querySelector('#x').onclick = closeSheet;
-      s.querySelector('#go').onclick = () => { if (NET.send({ t: 'invite', to: f.id, stake })) openSheet(`<h3>Challenge sent</h3><div class="spin" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p>Waiting for <b>${esc(f.name)}</b> to accept${stake ? ' your ' + stake + ' coin bet' : ''}…</p><p class="note" id="invMsg" style="text-align:center">The challenge expires after one minute.</p><div class="acts"><button class="btn" type="button" id="x">Close</button></div>`, s2 => s2.querySelector('#x').onclick = closeSheet, 'inviting'); }; });
-  draw();
-}
-function linkSheet() {
-  let stake = 0;
-  const draw = () => openSheet(`<h3>Game link</h3><p>Create a link, send it to anyone. When they open it, the game starts.</p><p class="note" style="text-align:center">Bring someone new to Blockmate: you win <b>${C.REFERRAL.sharer}</b> Blockcoins and they get <b>${C.REFERRAL.newcomer}</b>. Your first game with each friend gives you both <b>${C.REFERRAL.firstFriendGame}</b>.</p>
-    <div class="seg" role="group" aria-label="Stake" style="width:100%">${STAKES.map(s => `<button type="button" data-st="${s}" aria-pressed="${s === stake}" ${s > P.earned ? 'disabled' : ''}>${s ? s + ' coins' : 'Friendly'}</button>`).join('')}</div>
-    <div class="acts"><button class="btn main" type="button" id="go">Create the link</button><button class="btn" type="button" id="x">Cancel</button></div>`,
-    s => { s.querySelectorAll('[data-st]').forEach(b => b.onclick = () => { stake = +b.dataset.st; draw(); }); s.querySelector('#x').onclick = closeSheet; s.querySelector('#go').onclick = () => NET.send({ t: 'room_create', stake }); });
-  draw();
-}
+function challengeSheet(f) { friendSheet(f); }
+function linkSheet() { friendSheet(null); }
 NET.on('room', m => {
   const url = location.origin + '/?join=' + m.code;
-  openSheet(`<h3>Send this link</h3><p>Keep this page open. The game starts as soon as your friend opens the link${m.stake ? ' (bet: ' + m.stake + ' coins)' : ''}.</p>
+  openSheet(`<h3>Send this link</h3><p>Keep this page open. The game starts as soon as your friend opens the link.</p><p class="note" style="text-align:center">${rulesLine(Object.assign({ stake: m.stake }, m.set || {}))}</p>
     <div class="row"><input class="f grow" id="lnk" readonly value="${esc(url)}" aria-label="Game link"><button class="btn main sm" type="button" id="cp">Copy</button></div>
     ${navigator.share ? '<button class="btn" type="button" id="sh">Share…</button>' : ''}<div class="spin" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
     <div class="acts"><button class="btn" type="button" id="x">Cancel</button></div>`,
@@ -266,9 +374,10 @@ NET.on('room', m => {
       const sh = s.querySelector('#sh'); if (sh) sh.onclick = () => (api('/api/track', { e: 'share_native' }).catch(() => {}), navigator.share({ title: 'Blockmate', text: 'Beat me at Blockmate!', url }).catch(() => {})); }, 'room');
 });
 NET.on('invited', m => {
-  if (G && !G.over) { toast(m.from.name + ' challenged you. Finish this game, then ask them again.'); NET.send({ t: 'decline', inv: m.inv }); return; }
+  if (G && !G.st.over) { toast(m.from.name + ' challenged you. Finish this game, then ask them again.'); NET.send({ t: 'decline', inv: m.inv }); return; }
   SND.ping();
   openSheet(`<h3>${esc(m.from.name)} challenges you</h3><div class="row" style="justify-content:center">${embSvg(m.from.elo, 40)}<div><b class="num">${m.from.elo}</b> Elo · ${tierOf(m.from.elo)[1]}</div></div>
+    <p>${rulesLine(Object.assign({ stake: m.stake }, m.set || {}))}</p>
     <p>${m.stake ? `Bet: <b class="num">${m.stake}</b> Blockcoins each. The winner takes ${m.stake * 2}.` : 'Friendly game, nothing at stake.'}</p>
     ${m.stake > P.earned ? `<p class="note" style="text-align:center;color:var(--red)">You need ${m.stake} Blockcoins won by playing to accept.</p>` : ''}
     <div class="acts"><button class="btn main" type="button" id="ok" ${m.stake > P.earned ? 'disabled' : ''}>Accept</button><button class="btn" type="button" id="no">Decline</button></div>`,
@@ -277,9 +386,10 @@ NET.on('invited', m => {
 NET.on('invite_gone', m => { if (sheetKind === 'inviting') { const el = $('invMsg'); if (el) { el.textContent = m.why === 'declined' ? 'They declined this time.' : 'No answer. The challenge expired.'; el.style.color = 'var(--red)'; } } else if (sheetKind === 'invited') { sheetKind = null; closeSheet(); toast('That challenge expired.'); } });
 NET.on('queued', () => {});
 NET.on('error', m => { if (sheetKind === 'queue' || sheetKind === 'room' || sheetKind === 'inviting') { sheetKind = null; closeSheet(); } toast(m.msg); });
-NET.on('presence', m => { if (m.online) ONLINE.add(m.id); else ONLINE.delete(m.id); if (!G && tab === 'friends') renderView(); });
+NET.on('presence', m => { if (m.online) ONLINE.add(m.id); else ONLINE.delete(m.id); if (!G && tab === 'friends') renderView(); if (sheetKind === 'friend') { /* refresh list */ } });
 NET.on('friend_added', m => { toast(m.by.name + ' added you as a friend'); FR.at = 0; if (!G && tab === 'friends') loadFriends(true); });
 NET.on('me', m => { setMe(m.me); if (!G) renderView(); });
+
 
 function viewFriends(v) {
   if (!FR.rows || Date.now() - FR.at > 20000) loadFriends();
@@ -378,13 +488,15 @@ function untilMidnightParis() {
   const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date()).split(':').map(Number);
   const mins = 24 * 60 - (p[0] % 24) * 60 - p[1]; return Math.floor(mins / 60) + 'h ' + String(mins % 60).padStart(2, '0') + 'm';
 }
-const SHOP_TABS = [['featured', 'Today', '★'], ['bundles', 'Packs', Object.keys(BUNDLES).length], ['store', 'Store', '€']];
+const SHOP_TABS = [['featured', 'Today', '★'], ['bundles', 'Packs', Object.keys(BUNDLES).length]].concat(PORTAL ? [] : [['store', 'Store', '€']]);
 const catsBar = () => `<div class="cats" role="group" aria-label="Category">${SHOP_TABS.map(([k, l, n]) => `<button type="button" class="${k === 'store' ? 'money' : ''}" data-shop="${k}" aria-pressed="${shopCat === k}">${l}<span>${n}</span></button>`).join('')}${Object.entries(CATS).map(([k, c]) => `<button type="button" data-shop="${k}" aria-pressed="${k === shopCat}">${c.label}<span>${Object.keys(c.data).length}</span></button>`).join('')}</div>`;
 function plusBanner() {
+  if (PORTAL) return '';
   return `<div class="plus"><div style="position:relative;z-index:1"><h3>Blockmate Plus</h3><p>Exclusive skins, avatars and lobbies · double daily reward · <b>ranked wins ×2 Elo</b> for 3 days after subscribing (7 days yearly)</p></div>
       <button class="btn main" type="button" id="plusBtn" style="position:relative;z-index:1">${P.plus ? 'Plus is active' : 'See Plus · ' + euro(PRODUCTS.plusMonth.cents) + ' / month'}</button></div>`;
 }
 function viewShop(v) {
+  if (shopCat === 'store' && PORTAL) shopCat = 'featured';
   if (shopCat === 'store') return viewStore(v);
   if (!CATS[shopCat] && shopCat !== 'bundles') shopCat = 'featured';
   let body = '';
@@ -393,7 +505,7 @@ function viewShop(v) {
     body = `<div class="shophd"><h2 style="margin:0">Item shop</h2><span class="timer">New items in ${untilMidnightParis()}</span></div>
       <div class="items">${d.featured.map(([c, k]) => itemCard(c, k, d.deal && d.deal[0] === c && d.deal[1] === k)).join('')}</div>
       <div class="shophd"><h2 style="margin:0">Packs</h2></div>${bundlesHtml()}`;
-  } else if (shopCat === 'bundles') body = bundlesHtml() + phoenixCard();
+  } else if (shopCat === 'bundles') body = bundlesHtml() + (PORTAL ? '' : phoenixCard());
   else {
     const cat = CATS[shopCat]; const groups = {};
     Object.entries(cat.data).forEach(([k, it]) => { const g = it.plus ? 'Plus exclusive' : it.pack ? 'Pack exclusive' : (it.grp || (it.price ? RARITY[rarityOf(it)].name : 'Free')); (groups[g] = groups[g] || []).push(k); });
@@ -404,7 +516,7 @@ function viewShop(v) {
   }
   v.innerHTML = `<h1 class="pt">Shop</h1><div class="shop">${catsBar()}<div class="stack">${plusBanner()}${body}
     <p class="note" style="margin:0">Shop items only change how your game looks, never how it plays.</p></div></div>`;
-  v.querySelector('#plusBtn').onclick = () => plusSheet();
+  const pb = v.querySelector('#plusBtn'); if (pb) pb.onclick = () => plusSheet();
   v.querySelectorAll('[data-shop]').forEach(b => b.onclick = () => { shopCat = b.dataset.shop; renderView(); });
   v.querySelectorAll('[data-bundle]').forEach(b => b.onclick = () => bundleSheet(b.dataset.bundle));
   const ph = v.querySelector('[data-phoenix]'); if (ph) ph.onclick = () => checkoutSheet('phoenixPack', 'A full mythic set: 6 exclusive items, plus 1,000 Blockcoins.');
@@ -491,7 +603,12 @@ function avatarSheet() {
 function viewProfile(v) {
   const t = tierOf(P.elo), next = TIERS.find(x => x[0] > P.elo), wr = P.st.games ? Math.round(P.st.wins / P.st.games * 100) : 0;
   const countryOpts = Object.entries(COUNTRIES).map(([k, n]) => `<option value="${k}" ${k === P.country ? 'selected' : ''}>${n}</option>`).join('');
-  const account = P.guest ? `<div class="panel hl"><div class="ph"><h3>Save your progress</h3><span class="badge or">Guest</span></div>
+  const account = PORTAL ? `<div class="panel"><div class="ph"><h3>Your name</h3></div>
+    <form id="acc" style="display:grid;gap:12px">
+      <label class="lb">Username<input class="f" id="fName" maxlength="16" value="${esc(P.name)}" autocomplete="nickname"></label>
+      <label class="lb">Country<select class="f" id="fCountry">${countryOpts}</select></label>
+      <button class="btn main" type="submit">Save</button><div class="note" id="accMsg">Your progress is saved in this browser. Your username and Elo appear in the rankings.</div></form></div>`
+    : P.guest ? `<div class="panel hl"><div class="ph"><h3>Save your progress</h3><span class="badge or">Guest</span></div>
     <p class="muted" style="margin:0">You're playing as a guest on this device. Pick a username and a password to keep your Elo, Blockcoins and items, and to play on any device.</p>
     <form id="reg" style="display:grid;gap:12px">
       <label class="lb">Username<input class="f" id="fName" maxlength="16" value="${esc(P.name)}" autocomplete="username" required></label>
@@ -537,9 +654,9 @@ function viewProfile(v) {
   const lg = v.querySelector('#login'); if (lg) lg.onclick = loginSheet;
   const acc = v.querySelector('#acc');
   if (acc) acc.onsubmit = async e => { e.preventDefault();
-    try { await api('/api/profile', { name: v.querySelector('#fName').value.trim(), email: v.querySelector('#fMail').value.trim(), country: v.querySelector('#fCountry').value }); LB.country = null; renderView(); toast('Profile saved'); } catch (err) { bad(err.message); } };
+    try { await api('/api/profile', { name: v.querySelector('#fName').value.trim(), email: PORTAL ? undefined : v.querySelector('#fMail').value.trim(), country: v.querySelector('#fCountry').value }); LB.country = null; renderView(); toast('Profile saved'); } catch (err) { bad(err.message); } };
   const lo = v.querySelector('#logout'); if (lo) lo.onclick = async () => { try { await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {} await api('/api/me'); reconnect(); renderView(); toast('Logged out'); };
-  v.querySelector('#toShop').onclick = () => setTab('shop'); v.querySelector('#chAv').onclick = avatarSheet; v.querySelector('#plusP').onclick = () => plusSheet();
+  v.querySelector('#toShop').onclick = () => setTab('shop'); v.querySelector('#chAv').onclick = avatarSheet; const pp = v.querySelector('#plusP'); if (pp) pp.onclick = () => plusSheet();
   let armed = false; v.querySelector('#resetAll').onclick = async e => { if (!armed) { armed = true; e.target.textContent = 'Click again to reset Elo, records and stats'; setTimeout(() => { armed = false; if (e.target.isConnected) e.target.textContent = 'Reset my Elo, records and stats'; }, 3500); return; }
     try { await api('/api/reset', {}); renderView(); toast('Progress reset. Your Blockcoins and items are kept.'); } catch (err) { toast(err.message); } };
 }
@@ -613,34 +730,46 @@ const panelIdx = k => k === 0 ? G.me : 1 - G.me;
 const isHuman = t => G.mode === 'local' || t === G.me;
 const fmtClock = ms => { const s = Math.ceil(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 
-async function startSolo(level, ranked) {
-  SND.init();
-  let r; try { r = await api('/api/solo/start', { level, ranked }); } catch (e) { toast(e.message); return; }
-  const st = E.newState(r.seed);
-  openGame({ mode: 'solo', level, ranked, gid: r.id, st, br: E.rng(E.botSeed(r.seed)), hm: [], me: 0,
+async function startSolo(level, ranked, opts) {
+  SND.init(); opts = opts || {}; await PSDK.midgame();
+  let r; try { r = await api('/api/solo/start', { level, ranked, target: opts.target || 0 }); } catch (e) { toast(e.message); return; }
+  const st = E.newState(r.seed, { target: r.target || 0 });
+  const clk = !ranked && opts.clock ? { ms: [opts.clock, 1e12], at: Date.now(), run: true, one: true } : null;
+  openGame({ mode: 'solo', level, ranked, opts, gid: r.id, st, br: E.rng(E.botSeed(r.seed)), hm: [], me: 0,
     look: seatLooks(myCard(), null), avs: [P.eq.avatar, 'robot'], names: [P.name, LEVELS[level].name], sub: [tierOf(P.elo)[1] + ' · ' + P.elo + ' Elo', 'Bot · ' + LEVELS[level].elo + ' Elo'],
-    modeHtml: ranked ? (() => { const L = LEVELS[level], z = stakesOf(L.elo, L.win, L.loss); return `Ranked · win <b>${sgn(z.eloWin)} Elo ${sgn(z.coinsWin)}</b> · loss <b>${sgn(z.eloLoss)} Elo ${sgn(z.coinsLoss)}</b>`; })() : `Solo · <b>Practice</b> · win +${reward(level, 1, false)}`, stake: 0, clk: null });
+    modeHtml: ranked ? (() => { const L = LEVELS[level], z = stakesOf(L.elo, L.win, L.loss); return `Ranked · win <b>${sgn(z.eloWin)} Elo ${sgn(z.coinsWin)}</b> · loss <b>${sgn(z.eloLoss)} Elo ${sgn(z.coinsLoss)}</b>`; })() : `Practice · <b>${targetLabel(st.target)}</b>${clk ? ' · ' + fmtTime(opts.clock) : ''} · win +${reward(level, 1, false)}`, stake: 0, clk });
 }
-function startLocal() {
-  SND.init();
-  openGame({ mode: 'local', st: E.newState((Math.random() * 2 ** 32) >>> 0), me: 0, look: seatLooks(myCard(), null), avs: [P.eq.avatar, 'smile'], names: [P.name, 'Player 2'], sub: ['Player 1', 'Player 2'],
-    modeHtml: 'Duel · <b>Same screen</b> · 5 min each', stake: 0, clk: { ms: [C.CLOCK_MS, C.CLOCK_MS], at: Date.now(), run: true } });
+async function startLocal(o) {
+  SND.init(); await PSDK.midgame(); o = o || { time: C.CLOCK_MS, target: 0 };
+  openGame({ mode: 'local', set: o, st: E.newState((Math.random() * 2 ** 32) >>> 0, { target: o.target }), me: 0, look: seatLooks(myCard(), null), avs: [P.eq.avatar, 'smile'], names: [P.name, 'Player 2'], sub: ['Player 1', 'Player 2'],
+    modeHtml: `Same screen · <b>${targetLabel(o.target)}</b> · ${fmtTime(o.time)} each`, stake: 0, clk: { ms: [o.time, o.time], at: Date.now(), run: true } });
+}
+async function startDaily() {
+  SND.init(); await PSDK.midgame();
+  let r; try { r = await api('/api/challenge/start', {}); } catch (e) { toast(e.message); return; }
+  const st = E.newState(r.seed, { single: true }); const d = DAILY_CH; const best = d && d.top[0];
+  st.scores[1] = best ? best.score : 0;
+  openGame({ mode: 'daily', day: r.day, st, hm: [], me: 0, look: seatLooks(myCard(), null), avs: [P.eq.avatar, best ? best.av : 'trophy'], names: [P.name, 'Best today'], sub: ['Daily challenge', best ? esc(best.name) : 'Nobody yet'],
+    modeHtml: `<b>Daily challenge</b> · ${r.day} · one attempt`, stake: 0, clk: null });
+  DAILY_CH = null;
 }
 function startOnline(m) {
   const s = m.state; const cards = []; cards[m.you] = Object.assign({}, m.meCard, { plus: P.plus, eq: P.eq, custom: P.custom }); cards[1 - m.you] = m.opp;
   const look = seatLooks(cards[0], cards[1]);
   const names = cards.map(c => c.name), sub = cards.map(c => tierOf(c.elo)[1] + ' · ' + c.elo + ' Elo');
   openGame({ mode: 'online', kind: s.kind, mid: s.id, st: pickState(s), me: m.you, look, avs: cards.map(cardAvatar), names, sub, opp: m.opp, stake: s.stake, clk: clockFrom(s),
-    modeHtml: s.kind === 'ranked' ? (() => { const z = stakesOf(m.opp.elo, C.ONLINE.win, C.ONLINE.loss); return `Online ranked · win <b>${sgn(z.eloWin)} Elo ${sgn(z.coinsWin)}</b> · loss <b>${sgn(z.eloLoss)} Elo ${sgn(z.coinsLoss)}</b>`; })() : `Friend duel · <b>${s.stake ? s.stake + ' coins' : 'Friendly'}</b> · 5 min each` });
+    modeHtml: s.kind === 'ranked' ? (() => { const z = stakesOf(m.opp.elo, C.ONLINE.win, C.ONLINE.loss); return `Online ranked · ${fmtTime(s.time || C.CLOCK_MS)} each · win <b>${sgn(z.eloWin)} Elo ${sgn(z.coinsWin)}</b> · loss <b>${sgn(z.eloLoss)} Elo ${sgn(z.coinsLoss)}</b>`; })() : `Friend duel · <b>${targetLabel(s.target)}</b> · ${fmtTime(s.time || C.CLOCK_MS)} each · ${s.stake ? s.stake + ' coins' : 'Friendly'}` });
   if (!m.resume) SND.ping();
 }
-const pickState = s => ({ board: s.board, tray: s.tray, next: s.next || [], scores: s.scores, combo: s.combo, best: s.best, turn: s.turn, over: s.over, stuck: s.stuck });
+const pickState = s => ({ board: s.board, tray: s.tray, next: s.next || [], scores: s.scores, combo: s.combo, best: s.best, turn: s.turn, over: s.over, stuck: s.stuck, target: s.target || 0, reached: s.reached == null ? null : s.reached });
 const clockFrom = s => ({ ms: s.clocks.slice(), at: Date.now(), run: s.running });
 function openGame(o) {
+  PSDK.start();
   G = Object.assign({ busy: false, sel: null, peek: null, muted: false, lastTurn: null }, o);
   $('gMode').innerHTML = o.modeHtml;
   $('stakebar').hidden = !o.stake; if (o.stake) $('stakebar').innerHTML = `${coinSvg(18)}${o.stake} Blockcoins each on the line`;
   $('page').hidden = true; $('foot').hidden = true; $('game').hidden = false; sheetKind = null; closeSheet(); resignArmed = false; $('gResign').textContent = 'Resign'; renderSnd(); renderMu(); MUS.go('game');
+  $('game').classList.toggle('solo1', o.mode === 'daily');
   $('chat').hidden = o.mode !== 'online'; $('log').innerHTML = ''; $('mute').textContent = 'Mute';
   if (o.mode === 'online') sysMsg('Be nice: insults, racism and threats are blocked.');
   buildGrid(); requestAnimationFrame(() => fx.size()); renderAll(); startTurn();
@@ -650,16 +779,18 @@ function renderBoard(b, ghost) { b = b || G.st.board;
   for (let i = 0; i < N * N; i++) { const el = cells[i]; el.classList.remove('ghost', 'willclear', 'flash'); const o = b[i]; if (o) { const L = G.look[o - 1]; paint(el, L.skin, L.glow); } else unpaint(el); }
   if (ghost) { const L = G.look[G.st.turn]; ghost.cells.forEach(k => { paint(cells[k], L.skin); cells[k].classList.add('ghost'); }); ghost.clear.forEach(k => cells[k].classList.add('willclear')); } }
 function comboHtml(p) { const c = G.st.combo[p]; return `<div class="lbl"><span>Combo</span><b>${c ? c + ' · next ' + fmtMult(E.comboMult(c + 1)) : '0'}</b></div><div class="pips">${[1, 2, 3, 4, 5].map(i => `<i class="${i <= c ? 'on' : ''}"></i>`).join('')}</div>`; }
-function turnText(p) { if (G.st.over || G.st.turn !== p) return ''; if (G.mode === 'solo') return isHuman(p) ? 'Your turn' : 'Thinking…'; if (G.mode === 'local') return 'Playing'; return p === G.me ? 'Your turn' : 'Their turn'; }
+function turnText(p) { if (G.mode === 'daily') return p === 0 && !G.st.over ? 'Playing' : ''; if (G.st.over || G.st.turn !== p) return ''; if (G.mode === 'solo') return isHuman(p) ? 'Your turn' : 'Thinking…'; if (G.mode === 'local') return 'Playing'; return p === G.me ? 'Your turn' : 'Their turn'; }
 const clockLeft = p => !G.clk ? 0 : (G.clk.run && !G.st.over && G.st.turn === p ? Math.max(0, G.clk.ms[p] - (Date.now() - G.clk.at)) : G.clk.ms[p]);
 function renderClocks() {
-  for (let k = 0; k < 2; k++) { const el = $('k' + k); if (!G.clk) { el.hidden = true; continue; } const p = panelIdx(k); const left = clockLeft(p); el.hidden = false; el.textContent = fmtClock(left);
+  for (let k = 0; k < 2; k++) { const el = $('k' + k); const p = panelIdx(k); if (!G.clk || (G.clk.one && p !== G.me)) { el.hidden = true; continue; } const left = clockLeft(p); el.hidden = false; el.textContent = fmtClock(left);
     el.classList.toggle('low', left < 30000 && G.st.turn === p && !G.st.over); }
 }
 function renderPlayers() { for (let k = 0; k < 2; k++) { const p = panelIdx(k); $('n' + k).textContent = G.names[p]; $('e' + k).textContent = G.sub[p]; $('s' + k).textContent = G.st.scores[p]; paint($('d' + k), G.look[p].skin);
   $('a' + k).innerHTML = avatarHtml(G.avs[p], 40);
   $('p' + k).classList.toggle('on', !G.st.over && G.st.turn === p); const cEl = $('c' + k); cEl.innerHTML = comboHtml(p); cEl.classList.toggle('hot', G.st.combo[p] > 0);
-  $('t' + k).textContent = turnText(p); }
+  $('t' + k).textContent = turnText(p);
+  const tg = G.st.target, tb = $('tg' + k); if (tb) { tb.hidden = !tg; if (tg) tb.firstChild.style.width = Math.min(100, G.st.scores[p] / tg * 100) + '%'; } }
+  $('gTarget').hidden = !G.st.target; if (G.st.target) $('gTarget').innerHTML = `First to <b class="num">${G.st.target}</b> wins`;
   renderClocks();
   $('game').classList.toggle('wait', !G.st.over && !isHuman(G.st.turn));
 }
@@ -679,7 +810,8 @@ function renderTray() { const t = $('tray'); t.innerHTML = ''; const human = isH
 function renderNext() {
   const nq = $('nq'); const nx = G.st.next && G.st.next[0];
   if (nx == null || G.st.over) { $('nextq').hidden = true; return; } $('nextq').hidden = false;
-  const mover = G.st.turn, receiver = 1 - mover; const L = G.look[receiver];
+  const mover = G.st.turn, receiver = G.st.single ? mover : 1 - mover; const L = G.look[receiver];
+  if (G.st.single) { $('nqLabel').textContent = 'Next piece'; nq.innerHTML = ''; const b = document.createElement('div'); b.className = 'nx new'; b.appendChild(miniPiece(nx, L.skin, 64)); nq.appendChild(b); return; }
   const chosen = isHuman(mover) ? (drag ? drag.ti : G.sel) : (G.peek ? G.peek.ti : null);
   const who = G.mode === 'local' ? esc(G.names[receiver]) + "'s choices" : receiver === G.me ? 'Your next choices' : "Rival's next choices";
   $('nqLabel').innerHTML = who;
@@ -695,7 +827,7 @@ function renderAll() { renderBoard(); renderPlayers(); renderTray(); renderPeek(
 // Big "your turn" banner, plus the board fading while the other player moves.
 function turnBanner() {
   if (!G || G.st.over) return; const t = G.st.turn;
-  if (G.bannerSeq === (G.seq || 0)) return; G.bannerSeq = G.seq || 0;
+  if (G.mode === 'daily' || G.bannerSeq === (G.seq || 0)) return; G.bannerSeq = G.seq || 0;
   let html = null, them = false;
   if (G.mode === 'local') html = esc(G.names[t]) + '<small>your turn</small>';
   else if (t === G.me) html = 'YOUR TURN';
@@ -711,14 +843,14 @@ setInterval(() => {
   if (!G || !G.clk || G.st.over) return; renderClocks();
   const p = G.st.turn; const left = clockLeft(p);
   if (isHuman(p) && left < 10500 && left > 0 && Math.floor(left / 1000) !== G._tk) { G._tk = Math.floor(left / 1000); SND.tick(); }
-  if (G.mode === 'local' && G.clk.run && left <= 0) { G.clk.ms[p] = 0; G.clk.run = false; G.st.over = true; G.timeLoser = p; renderPlayers(); renderTray(); result(); }
+  if ((G.mode === 'local' || G.mode === 'solo') && G.clk.run && left <= 0) { G.clk.ms[p] = 0; G.clk.run = false; G.st.over = true; G.timeLoser = p; renderPlayers(); renderTray(); result(G.mode === 'solo' ? true : undefined); }
 }, 200);
 
 function turnHint() { const c = G.st.combo[G.st.turn]; const who = G.mode === 'local' ? `<b>${esc(G.names[G.st.turn])}</b>, your turn.` : '<b>Your turn.</b>';
   return c ? `${who} <span class="hot">Combo ${c}: clear a line now for ${fmtMult(E.comboMult(c + 1))}.</span>` : `${who} Drag a piece onto the board.`; }
 function startTurn() {
   if (!G || G.st.over) return; G.sel = null; G.peek = null; renderAll();
-  if (G.mode !== 'online' && !E.moves(G.st.board, G.st.tray).length) { G.st.over = true; G.st.stuck = G.st.turn; G.st.scores[1 - G.st.turn] += E.BLOCK_BONUS; return localEnd(); }
+  if (G.mode !== 'online' && !E.moves(G.st.board, G.st.tray).length) { G.st.over = true; G.st.stuck = G.st.turn; if (!G.st.single) G.st.scores[1 - G.st.turn] += E.BLOCK_BONUS; return localEnd(); }
   turnBanner();
   if (isHuman(G.st.turn)) status(turnHint());
   else if (G.mode === 'online') status(`<b>${esc(G.names[G.st.turn])}</b> is playing… you can see the piece they hold.`);
@@ -747,12 +879,13 @@ function myMove(ti, r, c) {
 async function playLocal(ti, r, c) {
   const g = G, before = g.st.board.slice(); const p = g.st.turn; const mv = E.play(g.st, ti, r, c); if (!mv) return;
   if (g.clk && g.clk.run) { const now = Date.now(); g.clk.ms[p] = Math.max(0, g.clk.ms[p] - (now - g.clk.at)); g.clk.at = now; }
-  if (g.mode === 'solo' && mv.p === 0) g.hm.push({ ti, r, c });
+  if ((g.mode === 'solo' || g.mode === 'daily') && mv.p === 0) g.hm.push({ ti, r, c });
   if (!await animate(before, mv)) return;
   if (g.st.over) localEnd(); else startTurn();
 }
-function stuckLine() { const s = G.st.stuck, w = 1 - s; return `<b>${esc(G.names[s])}</b> can't place any piece. <span class="hot">+${E.BLOCK_BONUS} block bonus</span> to <b>${esc(G.names[w])}</b>.`; }
-function localEnd() { if (G.clk) G.clk.run = false; renderPlayers(); renderTray(); status(stuckLine()); const g = G; setTimeout(() => { if (G === g) result(); }, 950); }
+function reachedLine() { return `<b>${esc(G.names[G.st.reached])}</b> reached <b class="num">${G.st.target}</b> points first.`; }
+function stuckLine() { if (G.st.reached != null) return reachedLine(); const s = G.st.stuck, w = 1 - s; return `<b>${esc(G.names[s])}</b> can't place any piece. <span class="hot">+${E.BLOCK_BONUS} block bonus</span> to <b>${esc(G.names[w])}</b>.`; }
+function localEnd() { if (G.clk) G.clk.run = false; renderPlayers(); renderTray(); status(G.mode === 'daily' ? 'No piece fits anymore. Run over!' : stuckLine()); const g = G; setTimeout(() => { if (G === g) result(); }, 950); }
 
 // The end screen: a clear verdict, then both players with their points, winner first.
 function endSheet({ verdict, cls, whoWon, why, res0, extra, again, againLabel, kind }) {
@@ -765,7 +898,19 @@ function endSheet({ verdict, cls, whoWon, why, res0, extra, again, againLabel, k
     s => { s.querySelector('#again').onclick = again; s.querySelector('#home2').onclick = leave; }, kind);
 }
 async function result(resigned) {
+  PSDK.stop();
   const g = G; g.over = true; const st = g.st; if (g.clk) g.clk.run = false;
+  if (g.mode === 'daily') {
+    let r; try { r = await api('/api/challenge/finish', { day: g.day, moves: g.hm }); } catch (e) { r = null; toast(e.message); }
+    if (G !== g) return; SND.win();
+    const sc = r ? r.score : st.scores[0];
+    openSheet(`<h3 class="verdict win">Run over</h3><div class="who-won">Daily challenge · ${esc(g.day)}</div><div class="big num">${sc} <span class="muted" style="font-size:16px">pts</span></div>
+      ${r ? `<div class="delta up num">#${r.rank} of ${r.players} today</div>${r.coins ? `<div class="delta up num coinline">${coinSvg(20)}+${r.coins} Blockcoins</div>` : ''}` : ''}
+      <p class="note" style="text-align:center">Same pieces for everyone. A new challenge starts every day at midnight (Paris time).</p>
+      <div class="acts"><button class="btn main" type="button" id="share">Share my score</button><button class="btn" type="button" id="lbd">Today's leaderboard</button><button class="btn" type="button" id="home2">Back to menu</button></div>`,
+      s => { s.querySelector('#share').onclick = () => shareDaily(sc, r && r.rank, r && r.players); s.querySelector('#home2').onclick = leave; s.querySelector('#lbd').onclick = () => { leave(); DAILY_CH = null; dailySheet(); }; }, 'result');
+    return;
+  }
   if (g.mode === 'solo') {
     let r; try { r = await api('/api/solo/finish', { id: g.gid, moves: g.hm, resigned: !!resigned }); } catch (e) { r = null; toast(e.message); }
     if (G !== g) return;
@@ -779,7 +924,7 @@ async function result(resigned) {
     if (res === 1) SND.win(); else if (res === 0) SND.lose();
     endSheet({ verdict: res === 1 ? 'Victory' : res === 0 ? 'Defeat' : 'Draw', cls: res === 1 ? 'win' : res === 0 ? 'lose' : '', res0: res,
       whoWon: res === 1 ? 'You beat ' + esc(g.names[1]) + '!' : res === 0 ? esc(g.names[1]) + ' wins.' : 'Nobody pulled ahead.',
-      why: resigned ? 'You left the game.' : st.stuck != null ? stuckLine() : '', extra, again: () => startSolo(g.level, g.ranked) });
+      why: g.timeLoser === 0 ? 'You ran out of time.' : resigned ? 'You left the game.' : st.stuck != null || st.reached != null ? stuckLine() : '', extra, again: () => startSolo(g.level, g.ranked, g.opts) });
     return;
   }
   api('/api/track', { e: 'local_end' }).catch(() => {});
@@ -787,9 +932,10 @@ async function result(resigned) {
   const w = res === 0.5 ? null : res === 1 ? 0 : 1;
   SND.win();
   endSheet({ verdict: w == null ? 'Draw' : 'Game over', cls: 'win', res0: res, whoWon: w == null ? 'Same score!' : esc(g.names[w]) + ' wins!',
-    why: g.timeLoser != null ? esc(g.names[g.timeLoser]) + ' ran out of time.' : resigned != null ? esc(g.names[resigned]) + ' resigned.' : st.stuck != null ? stuckLine() : '', again: () => startLocal() });
+    why: g.timeLoser != null ? esc(g.names[g.timeLoser]) + ' ran out of time.' : resigned != null ? esc(g.names[resigned]) + ' resigned.' : st.stuck != null || st.reached != null ? stuckLine() : '', again: () => startLocal(g.set) });
 }
 function leave() {
+  PSDK.stop();
   if (G && G.mode === 'online') { if (G.st.over) NET.send({ t: 'leave' }); }
   G = null; sheetKind = null; closeSheet(); $('game').hidden = true; $('game').classList.remove('wait'); $('page').hidden = false; $('foot').hidden = false; renderView();
 }
@@ -797,6 +943,8 @@ $('gExit').onclick = () => {
   if (!G) return leave();
   const g = G;
   if (g.st.over) return leave();
+  if (g.mode === 'daily') return openSheet(`<h3>End your run?</h3><p>You only get one attempt per day. Leaving now saves your score of <b class="num">${g.st.scores[0]}</b>.</p><div class="acts"><button class="btn main" type="button" id="stay">Keep playing</button><button class="btn" type="button" id="go">End run</button></div>`,
+    s => { s.querySelector('#stay').onclick = closeSheet; s.querySelector('#go').onclick = () => { closeSheet(); g.st.over = true; result(); }; });
   const started = g.st.scores[0] || g.st.scores[1];
   const ranked = (g.mode === 'solo' && g.ranked) || g.mode === 'online';
   if (!started && !ranked) return leave();
@@ -809,6 +957,7 @@ let resignArmed = false;
 $('gResign').onclick = () => { if (!G || G.st.over) return; if (!resignArmed) { resignArmed = true; $('gResign').textContent = 'Click again'; setTimeout(() => { resignArmed = false; $('gResign').textContent = 'Resign'; }, 3000); return; }
   resignArmed = false; $('gResign').textContent = 'Resign';
   if (G.mode === 'online') { NET.send({ t: 'resign' }); return; }
+  if (G.mode === 'daily') return $('gExit').onclick();
   G.st.over = true; renderPlayers(); result(G.mode === 'solo' ? true : G.st.turn); };
 function reaction(res, L) { const R = REACTS[L.react] || REACTS.classic; const lvl = Math.min(3, Math.max(res.lines, res.combo) - 1);
   const el = document.createElement('div'); el.className = 'react go' + (R.fx ? ' ' + R.fx : '');
@@ -891,11 +1040,12 @@ NET.on('reject', m => { if (!G || G.mode !== 'online') return; if (m.state) { G.
 let pendingEnd = null;
 NET.on('end', m => { if (moveBusy || moveQ.length) { pendingEnd = m; return; } onlineEnd(m); });
 function onlineEnd(m) {
+  PSDK.stop();
   const g = G; if (!g || g.mode !== 'online') { setMe(m.me); return; }
-  g.st.over = true; g.st.scores = m.scores; if (g.clk) g.clk.run = false; setMe(m.me); renderPlayers(); renderTray(); renderPeek();
+  g.st.over = true; g.st.scores = m.scores; if (m.reached != null) { g.st.reached = m.reached; g.st.target = m.target || g.st.target; } if (g.clk) g.clk.run = false; setMe(m.me); renderPlayers(); renderTray(); renderPeek();
   if (g.leaving) { leave(); toast(m.elo ? 'You left: ' + m.elo + ' Elo' : 'You left the game.'); return; }
   const res = m.result; const opp = esc(g.opp.name);
-  const why = { resign: res === 1 ? opp + ' resigned.' : 'You resigned.', time: res === 1 ? opp + ' ran out of time.' : 'You ran out of time.', left: res === 1 ? opp + ' left the game.' : 'You were disconnected too long.' }[m.reason] || (g.st.stuck != null ? stuckLine() : '');
+  const why = { resign: res === 1 ? opp + ' resigned.' : 'You resigned.', time: res === 1 ? opp + ' ran out of time.' : 'You ran out of time.', left: res === 1 ? opp + ' left the game.' : 'You were disconnected too long.' }[m.reason] || (g.st.stuck != null || g.st.reached != null ? stuckLine() : '');
   let extra = '';
   if (g.kind === 'ranked') extra += `<div class="delta ${m.elo >= 0 ? 'up' : 'down'} num">${m.elo >= 0 ? '+' : ''}${m.elo} Elo${m.boost ? ' <span class="boostb">Plus ×2</span>' : ''} · now ${P.elo} (${tierOf(P.elo)[1]})</div>`;
   const base = (m.coins || 0);
@@ -941,17 +1091,19 @@ window.addEventListener('beforeunload', e => { if (G && G.mode === 'online' && !
 // ---------- start ----------
 (async function boot() {
   renderSnd(); renderMu();
-  try { CONFIG = await (await fetch('/api/config')).json(); } catch (e) {}
+  if (PORTAL) { document.documentElement.classList.add('portal'); await PSDK.init(); }
+  try { CONFIG = await (await fetch(API_BASE + '/api/config')).json(); } catch (e) {}
   for (let i = 0; i < 5 && !P; i++) { try { await api('/api/me'); } catch (e) { $('view').innerHTML = `<div class="panel"><h2>Can't reach Blockmate</h2><p class="muted">${esc(e.message)} Retrying…</p></div>`; await sleep(1500 * (i + 1)); } }
   if (!P) return;
   const q = new URLSearchParams(location.search);
   if (q.get('store')) { shopCat = 'store'; tab = 'shop'; }
   if (q.get('profile')) tab = 'profile';
-  if (!q.get('join')) history.replaceState(null, '', '/');
-  setTab(tab);
+  if (!q.get('join') && !PORTAL) history.replaceState(null, '', '/');
+  setTab(tab); PSDK.loaded();
   NET.connect();
   // Anonymous visit count for the owner dashboard: which site sent the visitor, and whether it came from a game link.
   let ref = ''; try { ref = document.referrer ? new URL(document.referrer).hostname : ''; } catch (e) {}
+  if (PORTAL) ref = PORTAL;
   api('/api/hit', { ref, via: q.get('join') ? 'link' : null }).catch(() => {});
   if (q.get('paid')) {
     // Stripe confirms the payment to our server a few seconds after the redirect.

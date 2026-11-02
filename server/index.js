@@ -6,7 +6,7 @@ const crypto = require('node:crypto');
 const C = require('../shared/catalog');
 const G = require('../shared/game');
 const { open } = require('./db');
-const { Accounts, id } = require('./accounts');
+const { Accounts, id, parisDay } = require('./accounts');
 const { Online } = require('./online');
 const { Stripe } = require('./stripe');
 const { Stats } = require('./stats');
@@ -25,6 +25,9 @@ function createServer(opts = {}) {
   // PAYMENTS=off closes the Store without removing the Stripe keys.
   const stripe = Stripe({ secret: env.PAYMENTS === 'off' ? '' : env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET, baseUrl: BASE, accounts, db, log });
   const DEMO_PAY = !stripe.enabled && !PROD;
+  // Game portals allowed to call the API from their own domain (the game files are hosted there).
+  const PORTAL_RE = new RegExp(env.PORTAL_ORIGINS || '^https://([a-z0-9-]+\\.)*(crazygames\\.com|crazygames\\.fr|poki\\.com|poki-gdn\\.com|poki\\.io|poki-cdn\\.com)$');
+  const portalOrigin = o => PORTAL_RE.test(o);
   // The site answers on www.domain and on domain alone.
   const ORIGINS = new Set([BASE, BASE.replace('://www.', '://'), BASE.replace('://', '://www.')].concat((env.EXTRA_ORIGINS || '').split(',').filter(Boolean)));
   const ROOT = path.join(__dirname, '..');
@@ -78,7 +81,7 @@ function createServer(opts = {}) {
   }
 
   // ---------- solo games against bots (verified by replay) ----------
-  const soloIns = db.prepare('INSERT INTO solo(id,user_id,level,ranked,seed,created) VALUES(?,?,?,?,?,?)');
+  const soloIns = db.prepare('INSERT INTO solo(id,user_id,level,ranked,seed,created,target) VALUES(?,?,?,?,?,?,?)');
   const soloGet = db.prepare('SELECT * FROM solo WHERE id=? AND user_id=?');
   const soloDone = db.prepare('UPDATE solo SET done=1 WHERE id=?');
   const soloOpen = db.prepare('SELECT * FROM solo WHERE user_id=? AND ranked=1 AND done=0');
@@ -107,6 +110,12 @@ function createServer(opts = {}) {
   const frList = db.prepare('SELECT u.* FROM friends f JOIN users u ON u.id=f.friend_id WHERE f.user_id=? ORDER BY u.elo DESC');
   const frCount = db.prepare('SELECT COUNT(*) n FROM friends WHERE user_id=?');
   const total = db.prepare('SELECT COUNT(*) n FROM users');
+  const dailyGet = db.prepare('SELECT * FROM daily_runs WHERE day=? AND user_id=?');
+  const dailyIns = db.prepare('INSERT INTO daily_runs(day,user_id,seed,created) VALUES(?,?,?,?)');
+  const dailyDone = db.prepare('UPDATE daily_runs SET score=?, finished=? WHERE day=? AND user_id=?');
+  const dailyTop = db.prepare(`SELECT d.user_id, d.score, u.name, json_extract(u.eq,'$.avatar') avatar FROM daily_runs d JOIN users u ON u.id=d.user_id WHERE d.day=? AND d.score IS NOT NULL ORDER BY d.score DESC, d.finished ASC LIMIT 20`);
+  const dailyRank = db.prepare('SELECT COUNT(*) n FROM daily_runs WHERE day=? AND score>?');
+  const dailyCount = db.prepare('SELECT COUNT(*) n FROM daily_runs WHERE day=? AND score IS NOT NULL');
 
   async function api(req, res, p, url) {
     if (p === '/api/stripe/webhook' && req.method === 'POST') {
@@ -125,13 +134,13 @@ function createServer(opts = {}) {
       if (!crypto.timingSafeEqual(a, b)) return json(res, 401, { error: 'Wrong key.' });
       return json(res, 200, stats.report());
     }
-    if (p === '/api/config') return json(res, 200, { payments: stripe.enabled ? 'stripe' : DEMO_PAY ? 'demo' : 'off', clockMs: C.CLOCK_MS });
+    if (p === '/api/config') return json(res, 200, { payments: stripe.enabled ? 'stripe' : DEMO_PAY ? 'demo' : 'off', clockMs: C.CLOCK_MS, portal: true });
     if (p === '/api/stats') return json(res, 200, Object.assign(online.stats(), { players: total.get().n }));
 
     const ip = ipOf(req);
     if (req.method === 'POST') {
       // Basic protection against other sites posting on behalf of a player.
-      const origin = req.headers.origin; if (origin && PROD && !ORIGINS.has(origin)) return json(res, 403, { error: 'Bad origin.' });
+      const origin = req.headers.origin; if (origin && PROD && !ORIGINS.has(origin) && !portalOrigin(origin)) return json(res, 403, { error: 'Bad origin.' });
       if (limited('post:' + ip, 240, 60e3)) return json(res, 429, { error: 'Slow down a little.' });
     }
     let data = {};
@@ -154,7 +163,8 @@ function createServer(opts = {}) {
     const ok = extra => json(res, 200, Object.assign({ me: accounts.me(accounts.get(u.id)) }, extra || {}));
 
     switch (p) {
-      case '/api/me': return ok();
+      // Game portals (CrazyGames, Poki) run the game in a frame where cookies are blocked: they keep this token instead.
+      case '/api/me': return ok(req.headers['x-bm-portal'] ? { token } : undefined);
       case '/api/hit': stats.hit(u.id, req, data); if (data.via === 'link') stats.track('link_visit', u.id); return json(res, 200, {});
       case '/api/track': if (['share_copy', 'share_native', 'local_end'].includes(data.e)) stats.track(data.e === 'local_end' ? 'game_end' : data.e, u.id, data.e === 'local_end' ? { mode: 'local' } : null); return json(res, 200, {});
       case '/api/logout': accounts.endSession(token); res.setHeader('Set-Cookie', 'bm=; Path=/; Max-Age=0'); return json(res, 200, {});
@@ -181,13 +191,15 @@ function createServer(opts = {}) {
         const risk = -C.LEVELS[level].loss; const fresh = accounts.get(u.id);
         if (ranked && level !== 'easy' && risk > 0 && accounts.earned(fresh) < risk) return fail('You need ' + risk + ' Blockcoins won by playing to risk a Ranked game against ' + C.LEVELS[level].name + '. Win some against Rookie first, or play Practice.');
         const gid = id('s_'); const seed = crypto.randomBytes(4).readUInt32BE(0);
-        soloIns.run(gid, u.id, level, ranked, seed, Date.now()); return ok({ id: gid, seed });
+        // A score target is a Practice option; Ranked games always use the classic rules.
+        const target = !ranked && C.TARGETS.includes(data.target) ? data.target : 0;
+        soloIns.run(gid, u.id, level, ranked, seed, Date.now(), target); return ok({ id: gid, seed, target });
       }
       case '/api/solo/finish': {
         const g = soloGet.get(String(data.id || ''), u.id); if (!g) return fail('Unknown game.'); if (g.done) return fail('This game is already finished.');
         const mv = Array.isArray(data.moves) ? data.moves : null;
         if (!mv || mv.length > 200 || !mv.every(m => m && [m.ti, m.r, m.c].every(Number.isInteger))) return fail('Bad moves.');
-        const r = G.replaySolo(g.seed, g.level, mv, !!data.resigned);
+        const r = G.replaySolo(g.seed, g.level, mv, !!data.resigned, { target: g.target || 0 });
         if (!r.ok) { log('solo replay rejected', u.id, r.reason); return fail('This game could not be verified.'); }
         if (r.incomplete && !data.resigned) return fail('This game is not finished.');
         soloDone.run(g.id); stats.track('game_end', u.id, { mode: 'solo', level: g.level, ranked: !!g.ranked });
@@ -195,6 +207,30 @@ function createServer(opts = {}) {
         return ok(Object.assign(out, { result: r.result, scores: r.st.scores }));
       }
 
+      // Daily challenge: same pieces for everyone on a given Paris day, one attempt, score as much as possible.
+      case '/api/challenge': {
+        const day = parisDay(); const mine = dailyGet.get(day, u.id);
+        const top = dailyTop.all(day).map(x => ({ name: x.name, av: x.avatar, score: x.score, me: x.user_id === u.id }));
+        const rank = mine && mine.score != null ? dailyRank.get(day, mine.score).n + 1 : null;
+        return json(res, 200, { day, played: !!mine, score: mine ? mine.score : null, finished: !!(mine && mine.finished), rank, players: dailyCount.get(day).n, top });
+      }
+      case '/api/challenge/start': {
+        const day = parisDay(); if (dailyGet.get(day, u.id)) return fail('You already played today\'s challenge. Come back tomorrow!');
+        const seed = crypto.createHash('sha256').update('bm-daily:' + day + ':' + (env.DAILY_SALT || 'blockmate')).digest().readUInt32BE(0);
+        dailyIns.run(day, u.id, seed, Date.now()); return ok({ day, seed });
+      }
+      case '/api/challenge/finish': {
+        const day = String(data.day || ''); const run = dailyGet.get(day, u.id);
+        if (!run || run.score != null) return fail('No challenge in progress.');
+        const mv = Array.isArray(data.moves) ? data.moves : null;
+        if (!mv || mv.length > 400 || !mv.every(m => m && [m.ti, m.r, m.c].every(Number.isInteger))) return fail('Bad moves.');
+        const r = G.replaySingle(run.seed, mv); if (!r.ok) { log('challenge replay rejected', u.id, r.reason); return fail('This run could not be verified.'); }
+        dailyDone.run(r.score, Date.now(), day, u.id);
+        const fresh = accounts.get(u.id); const coins = Math.min(C.DAILY_CHALLENGE.maxCoins, Math.floor(r.score / C.DAILY_CHALLENGE.coinsPer));
+        fresh.coins += coins; fresh.st.bestCombo = Math.max(fresh.st.bestCombo, r.st.best[0]); accounts.save(fresh, ['coins', 'st']);
+        stats.track('game_end', u.id, { mode: 'daily', score: r.score });
+        return ok({ score: r.score, coins, rank: dailyRank.get(day, r.score).n + 1, players: dailyCount.get(day).n });
+      }
       case '/api/leaderboard': {
         const scope = url.searchParams.get('scope') || 'world';
         const rows = scope === 'country' ? lbCountry.all(url.searchParams.get('country') || u.country) : scope === 'friends' ? lbFriends.all(u.id, u.id) : lbWorld.all();
@@ -233,7 +269,15 @@ function createServer(opts = {}) {
     if (PROD && env.FORCE_HTTPS !== '0' && req.headers['x-forwarded-proto'] === 'http') { res.writeHead(301, { Location: BASE + req.url }); return res.end(); }
     try {
       if (p === '/healthz') return json(res, 200, { ok: true });
-      if (p.startsWith('/api/')) return await api(req, res, p, url);
+      if (p.startsWith('/api/')) {
+        const o = req.headers.origin;
+        if (o && portalOrigin(o) && p !== '/api/stripe/webhook' && !p.startsWith('/api/admin')) {
+          res.setHeader('Access-Control-Allow-Origin', o); res.setHeader('Vary', 'Origin');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-BM-Portal'); res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); res.setHeader('Access-Control-Max-Age', '86400');
+          if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+        }
+        return await api(req, res, p, url);
+      }
       if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
       staticRoute(req, res, p);
     } catch (e) {

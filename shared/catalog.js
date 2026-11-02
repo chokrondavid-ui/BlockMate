@@ -216,6 +216,10 @@
   // Subscribing to Plus: ranked wins give double Elo for a few days (losses unchanged).
   const BOOST_DAYS = { month: 3, year: 7 };
   const CLOCK_MS = 5 * 60 * 1000;
+  // Game speeds: minutes each, like chess time controls. Win conditions: first to N points (0 = classic).
+  const TIME_CONTROLS = [150000, 300000, 450000];
+  const TARGETS = [0, 100, 200, 500];
+  const DAILY_CHALLENGE = { coinsPer: 10, maxCoins: 60 }; // 1 Blockcoin per 10 points, up to 60, once a day
 
   // Coins at stake in Ranked: the harder the bot, the more you win and the more you can lose.
   // Lost coins only come from Blockcoins won by playing, never from bought ones.
@@ -246,5 +250,5 @@
   const euro = c => (c / 100).toFixed(2).replace('.', ',') + ' €';
 
   const tierOf = r => { let t = TIERS[0]; for (const x of TIERS) if (r >= x[0]) t = x; return t; };
-  return { mix, S, SKINS, RIVAL, GLOWS, BLASTS, REACTS, AVATARS, SPRITES, THEMES, BUNDLES, RARITY, rarityOf, dailyShop, priceOf, SIGNUP_PRIZES, REFERRAL, BOOST_DAYS, CLOCK_MS, CATS, DEFAULT_OWNED, DEFAULT_EQ, LEVELS, PRACTICE, ONLINE, STAKES, TIERS, COUNTRIES, DAILY, PRODUCTS, euro, tierOf };
+  return { mix, S, SKINS, RIVAL, GLOWS, BLASTS, REACTS, AVATARS, SPRITES, THEMES, BUNDLES, RARITY, rarityOf, dailyShop, priceOf, SIGNUP_PRIZES, REFERRAL, BOOST_DAYS, CLOCK_MS, TIME_CONTROLS, TARGETS, DAILY_CHALLENGE, CATS, DEFAULT_OWNED, DEFAULT_EQ, LEVELS, PRACTICE, ONLINE, STAKES, TIERS, COUNTRIES, DAILY, PRODUCTS, euro, tierOf };
 });
