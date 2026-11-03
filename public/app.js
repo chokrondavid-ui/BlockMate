@@ -22,19 +22,34 @@ async function api(path, data) {
   if (PORTAL) { headers['X-BM-Portal'] = PORTAL; if (TOKEN) headers.Authorization = 'Bearer ' + TOKEN; }
   const r = await fetch(API_BASE + path, Object.assign({ credentials: PORTAL ? 'omit' : 'same-origin', headers }, data === undefined ? {} : { method: 'POST', body: JSON.stringify(data) }));
   let j = {}; try { j = await r.json(); } catch (e) {}
-  if (j.token && PORTAL) { TOKEN = j.token; store.set('bm-token', TOKEN); }
+  if (j.token && PORTAL && j.token !== TOKEN) { TOKEN = j.token; store.set('bm-token', TOKEN); PSDK.saveToken(TOKEN); }
   if (j.me) setMe(j.me);
   if (!r.ok) throw new Error(j.error || 'Connection problem. Try again.');
   return j;
 }
 let P = null, CONFIG = { payments: 'off', turnMs: 25000 };
+const PENDING = { join: new URLSearchParams(location.search).get('join'), create: false };
 // Portal SDK (CrazyGames v3 or Poki): loading, gameplay start/stop and an ad break between games.
 const PSDK = { cg: null, poki: null, played: false, inGame: false,
   async init() {
     try { if (PORTAL === 'crazygames' && window.CrazyGames && window.CrazyGames.SDK) { await window.CrazyGames.SDK.init(); this.cg = window.CrazyGames.SDK; } } catch (e) { console.warn('CrazyGames SDK', e); }
     try { if (PORTAL === 'poki' && window.PokiSDK) { await window.PokiSDK.init(); this.poki = window.PokiSDK; } } catch (e) { console.warn('Poki SDK', e); }
     try { if (this.cg) this.cg.game.loadingStart(); } catch (e) {}
+    if (this.cg) {
+      // Progress: the session token is kept in the CrazyGames Data module, so it follows a logged-in player to any device.
+      try { const t = this.cg.data && this.cg.data.getItem('bm-token'); if (t && t !== TOKEN) { TOKEN = t; store.set('bm-token', t); } else if (!t && TOKEN) this.saveToken(TOKEN); } catch (e) {}
+      // Invites: a game opened from a CrazyGames invite link joins that room; "instant multiplayer" opens a room right away.
+      try { const g = this.cg.game; const code = g.getInviteParam && g.getInviteParam('roomId'); if (code) PENDING.join = code; else if (g.isInstantMultiplayer) PENDING.create = true;
+        if (g.addJoinRoomListener) g.addJoinRoomListener(p => { const c = p && p.roomId; if (!c) return; if (G && !G.st.over) { toast('Finish this game, then open the invite again.'); return; } if (G) leave(); NET.send({ t: 'room_join', code: c }); }); } catch (e) {}
+      // Mute from the CrazyGames settings.
+      try { const st = this.cg.game.settings; const apply = s => { if (!s) return; if (s.muteAudio) { this.muted = { snd: SND.on, mu: MUS.on }; SND.on = false; if (MUS.on) { MUS.on = false; MUS.stopAll(); } } else if (this.muted) { SND.on = this.muted.snd; MUS.on = this.muted.mu; this.muted = null; if (MUS.on) { MUS.started = true; MUS.mode = null; MUS.go(MUS.want || 'menu'); } } renderSnd(); renderMu(); };
+        apply(st); if (this.cg.game.addSettingsChangeListener) this.cg.game.addSettingsChangeListener(apply); } catch (e) {}
+    }
   },
+  saveToken(t) { try { if (this.cg && this.cg.data) this.cg.data.setItem('bm-token', t); } catch (e) {} },
+  // CrazyGames invite link and button for a friend room (replaces our own /?join= link inside the portal).
+  inviteLink(code) { try { if (this.cg) { this.cg.game.showInviteButton({ roomId: code }); return this.cg.game.inviteLink({ roomId: code }); } } catch (e) {} return null; },
+  hideInvite() { try { if (this.cg) this.cg.game.hideInviteButton(); } catch (e) {} },
   loaded() { try { if (this.cg) this.cg.game.loadingStop(); if (this.poki) this.poki.gameLoadingFinished(); } catch (e) {} },
   start() { if (this.inGame) return; this.inGame = true; try { if (this.cg) this.cg.game.gameplayStart(); if (this.poki) this.poki.gameplayStart(); } catch (e) {} },
   stop() { if (!this.inGame) return; this.inGame = false; this.played = true; try { if (this.cg) this.cg.game.gameplayStop(); if (this.poki) this.poki.gameplayStop(); } catch (e) {} },
@@ -152,7 +167,7 @@ let toastT; function toast(t) { const el = $('toast'); el.textContent = t; el.hi
 
 let sheetKind = null;
 function openSheet(html, bind, kind) { sheetKind = kind || null; $('sheet').innerHTML = html; $('overlay').hidden = false; if (bind) bind($('sheet')); const f = $('sheet').querySelector('button:not([disabled]),input'); if (f) f.focus(); }
-function closeSheet() { $('overlay').hidden = true; $('sheet').innerHTML = ''; const k = sheetKind; sheetKind = null; if (k === 'queue') NET.send({ t: 'cancel' }); if (k === 'room') NET.send({ t: 'room_cancel' }); }
+function closeSheet() { $('overlay').hidden = true; $('sheet').innerHTML = ''; const k = sheetKind; sheetKind = null; if (k === 'queue') NET.send({ t: 'cancel' }); if (k === 'room') { NET.send({ t: 'room_cancel' }); PSDK.hideInvite(); } }
 $('overlay').addEventListener('click', e => { if (e.target === $('overlay') && !(G && G.over) && sheetKind !== 'invited') closeSheet(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overlay').hidden && !(G && G.over)) closeSheet(); });
 
@@ -310,7 +325,7 @@ function friendSheet(only) {
       <p class="note" style="text-align:center">You can bet up to <b class="num">${P.earned}</b> Blockcoins won by playing. The winner takes the stake. Friend games never change your Elo.</p>
       ${list.length ? `<div class="list">${list.map(f => `<div class="li">${avatarHtml(f.av, 34)}<div class="who"><b>${esc(f.name)}</b><span class="num">${f.elo} Elo · ${ONLINE.has(f.id) ? 'Online' : 'Offline'}</span></div><button class="btn main sm" type="button" data-inv="${esc(f.id)}" ${ONLINE.has(f.id) ? '' : 'disabled'}>Challenge</button></div>`).join('')}</div>`
         : `<p class="note" style="text-align:center">${FR.rows ? 'None of your friends is online right now.' : 'Loading your friends…'}</p>`}
-      <div class="acts">${PORTAL ? '' : `<button class="btn main" type="button" id="lnk">Create a game link</button>`}<button class="btn" type="button" id="x">Back</button></div>
+      <div class="acts">${PORTAL && PORTAL !== 'crazygames' ? '' : `<button class="btn main" type="button" id="lnk">${PORTAL ? 'Create an invite link' : 'Create a game link'}</button>`}<button class="btn" type="button" id="x">Back</button></div>
       ${PORTAL ? '' : `<p class="note" style="text-align:center">Bring someone new with a link: you win <b>${C.REFERRAL.sharer}</b> Blockcoins and they get <b>${C.REFERRAL.newcomer}</b>.</p>`}`,
       s => { s.querySelector('#x').onclick = closeSheet; bindSeg(s, (k, val) => { PREF[k] = val; savePref(); draw(); });
         const opts = () => ({ time: PREF.time, target: PREF.target, stake: PREF.stake > P.earned ? 0 : PREF.stake });
@@ -364,7 +379,7 @@ function queueSheet(time) {
 function challengeSheet(f) { friendSheet(f); }
 function linkSheet() { friendSheet(null); }
 NET.on('room', m => {
-  const url = location.origin + '/?join=' + m.code;
+  const url = PSDK.inviteLink(m.code) || location.origin + '/?join=' + m.code;
   openSheet(`<h3>Send this link</h3><p>Keep this page open. The game starts as soon as your friend opens the link.</p><p class="note" style="text-align:center">${rulesLine(Object.assign({ stake: m.stake }, m.set || {}))}</p>
     <div class="row"><input class="f grow" id="lnk" readonly value="${esc(url)}" aria-label="Game link"><button class="btn main sm" type="button" id="cp">Copy</button></div>
     ${navigator.share ? '<button class="btn" type="button" id="sh">Share…</button>' : ''}<div class="spin" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
@@ -1018,11 +1033,11 @@ $('mute').onclick = () => { if (!G) return; G.muted = !G.muted; $('mute').textCo
 // ---------- live game messages ----------
 NET.on('hello', m => {
   setMe(m.me); ONLINE.clear(); for (const id of m.friendsOnline) ONLINE.add(id);
-  const join = new URLSearchParams(location.search).get('join');
-  if (join && !G) { history.replaceState(null, '', '/'); NET.send({ t: 'room_join', code: join }); }
+  if (PENDING.join && !G) { const code = PENDING.join; PENDING.join = null; if (!PORTAL) history.replaceState(null, '', '/'); NET.send({ t: 'room_join', code }); }
+  else if (PENDING.create && !G) { PENDING.create = false; NET.send({ t: 'room_create', time: PREF.time, target: PREF.target, stake: 0 }); }
   if (!G) renderView();
 });
-NET.on('start', m => startOnline(m));
+NET.on('start', m => { PSDK.hideInvite(); startOnline(m); });
 const moveQ = []; let moveBusy = false;
 NET.on('move', m => { moveQ.push(m); pumpMoves(); });
 async function pumpMoves() {
