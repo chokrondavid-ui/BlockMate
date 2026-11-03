@@ -513,6 +513,53 @@ body{transition:background-color .6s}
 @media (min-width:761px){.foot{padding-bottom:28px}}
 @media (prefers-reduced-motion:reduce){.spin i{animation:none}}
 @media (prefers-reduced-motion:reduce){.bg *,.daily::after,.plus::after,.blk,.gl::after,.cell.flash,.react.go,.react b,.pts,.sheet,.live::before{animation:none!important}.pts{display:none}}
+
+/* ===== v1.3 Neon arcade ===== */
+:root{--bg:#05030A;--panel:rgba(10,6,20,.78);--panel-2:rgba(16,10,30,.9);--solid:#0A0614;--line:rgba(120,90,255,.22);--line-2:rgba(140,110,255,.38);
+  --neon-c:#2EF2FF;--neon-m:#FF3DCB;--neon-o:#FF8A1F;--cell:#0C0818;--cell-2:#08050F}
+.bg{background:radial-gradient(60% 40% at 50% -5%,var(--top,rgba(255,61,203,.16)),transparent 70%),radial-gradient(55% 40% at 100% 100%,var(--ember),transparent 70%),radial-gradient(45% 35% at 0% 80%,rgba(46,242,255,.08),transparent 70%),var(--bg)!important}
+.bg .hex{inset:auto -20% -10% -20%;height:55%;opacity:1;background-image:linear-gradient(rgba(46,242,255,.22) 1px,transparent 1px),linear-gradient(90deg,rgba(255,61,203,.2) 1px,transparent 1px);background-size:56px 56px;transform:perspective(420px) rotateX(62deg);transform-origin:50% 100%;animation:neongrid 6s linear infinite;-webkit-mask-image:linear-gradient(transparent,#000 35%);mask-image:linear-gradient(transparent,#000 35%)}
+@keyframes neongrid{from{background-position:0 0}to{background-position:0 56px}}
+.bg .sweep{display:none}
+.bg .vig{background:repeating-linear-gradient(0deg,rgba(255,255,255,.022) 0 1px,transparent 1px 3px),radial-gradient(120% 90% at 50% 40%,transparent 55%,rgba(0,0,0,.7))}
+.topbar{background:rgba(5,3,10,.82);border-bottom:1px solid rgba(255,61,203,.35);box-shadow:0 1px 0 rgba(46,242,255,.15),0 8px 30px rgba(255,61,203,.08)}
+.logo .wm{text-shadow:0 0 6px rgba(255,255,255,.5),0 0 22px rgba(46,242,255,.45)}
+.logo .wm b{color:var(--neon-o);text-shadow:0 0 8px var(--neon-o),0 0 26px rgba(255,138,31,.7)}
+.nav button[aria-current="page"]{color:var(--neon-c);text-shadow:0 0 10px rgba(46,242,255,.8)}
+.panel,.ident,.pl,.slot{background:var(--panel);border:1px solid var(--line);box-shadow:inset 0 0 0 1px rgba(255,255,255,.02),0 0 0 1px rgba(0,0,0,.4)}
+.panel:hover,.ident:hover{border-color:var(--line-2)}
+.ph h2,.ph h3,h1.pt,.season h3{color:#fff;text-shadow:0 0 10px rgba(46,242,255,.45)}
+.daily{border-color:rgba(255,138,31,.6);background:linear-gradient(140deg,rgba(255,138,31,.16),rgba(10,6,20,.9) 60%);box-shadow:0 0 22px rgba(255,138,31,.18),inset 0 0 18px rgba(255,138,31,.08)}
+.btn{background:rgba(10,6,20,.6);border-color:rgba(255,138,31,.45);color:var(--neon-o);text-shadow:0 0 8px rgba(255,138,31,.5)}
+.btn:hover{box-shadow:0 0 14px rgba(255,138,31,.35);border-color:var(--neon-o)}
+.btn.main{background:linear-gradient(180deg,#FFB050,#FF8A1F 55%,#E0600A);color:#140600;text-shadow:none;border-color:#FFB050;box-shadow:0 0 18px rgba(255,138,31,.55),0 0 42px rgba(255,138,31,.25),inset 0 1px 0 rgba(255,240,210,.6)}
+.btn.main:hover{box-shadow:0 0 24px rgba(255,138,31,.8),0 0 60px rgba(255,138,31,.35),inset 0 1px 0 rgba(255,240,210,.6)}
+.seg{background:rgba(5,3,10,.8)}
+.seg button[aria-pressed="true"]{background:var(--neon-o);color:#140600;box-shadow:0 0 12px rgba(255,138,31,.6)}
+.sheet{background:linear-gradient(180deg,rgba(18,10,34,.97),rgba(8,5,16,.98));border:1px solid rgba(255,61,203,.4);box-shadow:0 0 0 1px rgba(46,242,255,.12),0 0 40px rgba(255,61,203,.18),0 30px 80px rgba(0,0,0,.7)}
+.sheet h3{text-shadow:0 0 12px rgba(46,242,255,.5)}
+.stat{background:rgba(5,3,10,.6);border-color:var(--line)}
+.stat b{text-shadow:0 0 10px rgba(46,242,255,.5)}
+.li.me{background:rgba(255,138,31,.08);box-shadow:inset 0 0 0 1px rgba(255,138,31,.55),0 0 14px rgba(255,138,31,.15)}
+/* mode tiles */
+.mtile{background:#07040E;border-color:color-mix(in srgb,var(--mc) 45%,transparent);box-shadow:inset 0 0 24px color-mix(in srgb,var(--mc) 12%,transparent)}
+.mtile:hover{border-color:var(--mc);box-shadow:0 0 0 1px var(--mc),0 0 26px color-mix(in srgb,var(--mc) 45%,transparent),inset 0 0 30px color-mix(in srgb,var(--mc) 18%,transparent)}
+.mtile .bt b{color:#fff;text-shadow:0 0 8px color-mix(in srgb,var(--mc) 90%,transparent),0 0 22px color-mix(in srgb,var(--mc) 60%,transparent)}
+.mtile .go{box-shadow:0 0 14px var(--mc);animation:neonpulse 2.4s ease-in-out infinite}
+.mtile .art i:not(.blk){background:transparent!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.035)}
+@keyframes neonpulse{50%{box-shadow:0 0 22px var(--mc),0 0 4px #fff}}
+/* blocks: dark core, bright tube outline, halo */
+.blk{background:var(--pat),radial-gradient(90% 70% at 30% 20%,rgba(255,255,255,.22),transparent 55%),linear-gradient(160deg,color-mix(in srgb,var(--b) 62%,#000),color-mix(in srgb,var(--l) 55%,#000));
+  background-size:var(--ps),100% 100%,100% 100%;box-shadow:inset 0 0 0 2px var(--h),inset 0 0 10px color-mix(in srgb,var(--b) 70%,transparent),0 0 9px color-mix(in srgb,var(--b) 75%,transparent)}
+.board{background:#06030D;border:1px solid rgba(46,242,255,.45);box-shadow:0 0 0 1px rgba(255,61,203,.25),0 0 30px rgba(46,242,255,.18),0 0 80px rgba(255,61,203,.12),inset 0 0 40px rgba(46,242,255,.06)}
+.cell:not(.blk){background:#0B0717;box-shadow:inset 0 0 0 1px rgba(46,242,255,.09)}
+.cell.willclear::before{background:rgba(255,255,255,.16);box-shadow:inset 0 0 0 2px #fff,0 0 12px var(--neon-c)}
+.pl.on{border-color:var(--neon-o);box-shadow:0 0 0 1px var(--neon-o),0 0 24px rgba(255,138,31,.3)}
+.sc{text-shadow:0 0 14px rgba(255,255,255,.35)}
+.clk{text-shadow:0 0 10px currentColor}
+.gtop{background:rgba(5,3,10,.85);border-bottom:1px solid rgba(255,61,203,.3)}
+.yt{text-shadow:0 0 12px var(--neon-c),0 0 40px var(--neon-m)!important}
+@media (prefers-reduced-motion:reduce){.bg .hex,.mtile .go{animation:none}}
 </style>
 </head>
 <body>
@@ -522,7 +569,7 @@ body{transition:background-color .6s}
 <div class="page" id="page">
   <header class="topbar"><div class="in">
     <a class="logo" id="home" href="/" title="Home"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="3" y="3" width="15.5" height="15.5" rx="3.5" fill="#F2781C"/><rect x="21.5" y="3" width="15.5" height="15.5" rx="3.5" fill="none" stroke="#FF9B3D" stroke-width="2.4"/><rect x="3" y="21.5" width="15.5" height="15.5" rx="3.5" fill="#FF9B3D"/><rect x="21.5" y="21.5" width="15.5" height="15.5" rx="3.5" fill="#F2781C"/><path d="M6.5 7.5h6" stroke="#FFD7B0" stroke-width="2" stroke-linecap="round" opacity=".7"/></svg>
-      <div><div class="wm">BLOCK<b>MATE</b></div><span class="ver">v1.2.1</span></div></a>
+      <div><div class="wm">BLOCK<b>MATE</b></div><span class="ver">v1.3</span></div></a>
     <nav class="nav" aria-label="Main">
       <button type="button" data-tab="play" aria-current="page">Play<span class="dotn" data-dot hidden></span></button>
       <button type="button" data-tab="friends">Friends</button>
