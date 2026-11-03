@@ -54,5 +54,14 @@ for (const portal of Object.keys(SDK)) {
   const dir = path.join(out, portal); fs.rmSync(dir, { recursive: true, force: true });
   for (const [n, d] of files) { fs.mkdirSync(path.dirname(path.join(dir, n)), { recursive: true }); fs.writeFileSync(path.join(dir, n), d); }
   fs.writeFileSync(path.join(out, portal + '.zip'), zip(files));
+  // Single-file version: some portals (CrazyGames) refuse archives, so everything is inlined in one index.html.
+  const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  const inline = html(portal)
+    .replace('href="favicon.svg"', 'href="data:image/svg+xml;base64,' + Buffer.from(read('public/favicon.svg')).toString('base64') + '"')
+    .replace('<script src="shared/catalog.js"></script>', () => '<script>\n' + read('shared/catalog.js') + '\n</script>')
+    .replace('<script src="shared/game.js"></script>', () => '<script>\n' + read('shared/game.js') + '\n</script>')
+    .replace('<script src="app.js"></script>', () => '<script>\n' + read('public/app.js') + '\n</script>');
+  const one = path.join(out, portal + '-single'); fs.rmSync(one, { recursive: true, force: true }); fs.mkdirSync(one, { recursive: true });
+  fs.writeFileSync(path.join(one, 'index.html'), inline);
   console.log('built dist/' + portal + '.zip', '→ API', API);
 }
