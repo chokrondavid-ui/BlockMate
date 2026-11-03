@@ -13,7 +13,7 @@ const SDK = {
 function html(portal) {
   let s = fs.readFileSync(path.join(ROOT, 'public/index.html'), 'utf8');
   s = s.replace('href="/favicon.svg"', 'href="favicon.svg"')
-    .replace(/<footer class="foot" id="foot">[\s\S]*?<\/footer>/, '<footer class="foot" id="foot" hidden></footer>')
+    .replace(/<footer class="foot" id="foot">[\s\S]*?<\/footer>/, `<footer class="foot pfoot" id="foot"><span>By playing, you accept the</span><a href="${API}/legal/cgv" target="_blank" rel="noopener">Terms</a><span>and</span><a href="${API}/legal/privacy" target="_blank" rel="noopener">Privacy Policy</a></footer>`)
     .replace('<a class="logo" id="home" href="/"', '<a class="logo" id="home" href="#"')
     .replace(/<meta property="og:[^>]*>\s*/g, '').replace(/<link rel="canonical"[^>]*>\s*/g, '');
   const boot = `<script>window.BM_PORTAL=${JSON.stringify(portal)};window.BM_API=${JSON.stringify(API)};</script>\n${SDK[portal]}\n`;

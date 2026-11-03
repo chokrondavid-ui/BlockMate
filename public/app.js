@@ -42,14 +42,20 @@ const PSDK = { cg: null, poki: null, played: false, inGame: false,
       try { const g = this.cg.game; const code = g.getInviteParam && g.getInviteParam('roomId'); if (code) PENDING.join = code; else if (g.isInstantMultiplayer) PENDING.create = true;
         if (g.addJoinRoomListener) g.addJoinRoomListener(p => { const c = p && p.roomId; if (!c) return; if (G && !G.st.over) { toast('Finish this game, then open the invite again.'); return; } if (G) leave(); NET.send({ t: 'room_join', code: c }); }); } catch (e) {}
       // Mute from the CrazyGames settings.
-      try { const st = this.cg.game.settings; const apply = s => { if (!s) return; if (s.muteAudio) { this.muted = { snd: SND.on, mu: MUS.on }; SND.on = false; if (MUS.on) { MUS.on = false; MUS.stopAll(); } } else if (this.muted) { SND.on = this.muted.snd; MUS.on = this.muted.mu; this.muted = null; if (MUS.on) { MUS.started = true; MUS.mode = null; MUS.go(MUS.want || 'menu'); } } renderSnd(); renderMu(); };
+      try { const st = this.cg.game.settings; const apply = s => { if (!s) return; this.noChat = !!s.disableChat; if (G && G.mode === 'online') $('chat').hidden = this.noChat; if (s.muteAudio) { this.muted = { snd: SND.on, mu: MUS.on }; SND.on = false; if (MUS.on) { MUS.on = false; MUS.stopAll(); } } else if (this.muted) { SND.on = this.muted.snd; MUS.on = this.muted.mu; this.muted = null; if (MUS.on) { MUS.started = true; MUS.mode = null; MUS.go(MUS.want || 'menu'); } } renderSnd(); renderMu(); };
         apply(st); if (this.cg.game.addSettingsChangeListener) this.cg.game.addSettingsChangeListener(apply); } catch (e) {}
     }
   },
   saveToken(t) { try { if (this.cg && this.cg.data) this.cg.data.setItem('bm-token', t); } catch (e) {} },
   // CrazyGames invite link and button for a friend room (replaces our own /?join= link inside the portal).
-  inviteLink(code) { try { if (this.cg) { this.cg.game.showInviteButton({ roomId: code }); return this.cg.game.inviteLink({ roomId: code }); } } catch (e) {} return null; },
+  inviteLink(code) { if (!this.cg) return null; const g = this.cg.game;
+    try { if (g.updateRoom) g.updateRoom({ roomId: 'r-' + code, isJoinable: true, inviteParams: { roomId: code } }); } catch (e) {}
+    try { g.showInviteButton({ roomId: code }); } catch (e) {}
+    try { return g.inviteLink({ roomId: code }); } catch (e) { return null; } },
   hideInvite() { try { if (this.cg) this.cg.game.hideInviteButton(); } catch (e) {} },
+  // Room status for CrazyGames friends: playing in a match (not joinable), or out of any room.
+  inMatch(id) { try { if (this.cg && this.cg.game.updateRoom) this.cg.game.updateRoom({ roomId: id, isJoinable: false }); } catch (e) {} },
+  leftRoom() { try { if (this.cg && this.cg.game.leftRoom) this.cg.game.leftRoom(); } catch (e) {} },
   loaded() { try { if (this.cg) this.cg.game.loadingStop(); if (this.poki) this.poki.gameLoadingFinished(); } catch (e) {} },
   start() { if (this.inGame) return; this.inGame = true; try { if (this.cg) this.cg.game.gameplayStart(); if (this.poki) this.poki.gameplayStart(); } catch (e) {} },
   stop() { if (!this.inGame) return; this.inGame = false; this.played = true; try { if (this.cg) this.cg.game.gameplayStop(); if (this.poki) this.poki.gameplayStop(); } catch (e) {} },
@@ -167,7 +173,7 @@ let toastT; function toast(t) { const el = $('toast'); el.textContent = t; el.hi
 
 let sheetKind = null;
 function openSheet(html, bind, kind) { sheetKind = kind || null; $('sheet').innerHTML = html; $('overlay').hidden = false; if (bind) bind($('sheet')); const f = $('sheet').querySelector('button:not([disabled]),input'); if (f) f.focus(); }
-function closeSheet() { $('overlay').hidden = true; $('sheet').innerHTML = ''; const k = sheetKind; sheetKind = null; if (k === 'queue') NET.send({ t: 'cancel' }); if (k === 'room') { NET.send({ t: 'room_cancel' }); PSDK.hideInvite(); } }
+function closeSheet() { $('overlay').hidden = true; $('sheet').innerHTML = ''; const k = sheetKind; sheetKind = null; if (k === 'queue') NET.send({ t: 'cancel' }); if (k === 'room') { NET.send({ t: 'room_cancel' }); PSDK.hideInvite(); PSDK.leftRoom(); } }
 $('overlay').addEventListener('click', e => { if (e.target === $('overlay') && !(G && G.over) && sheetKind !== 'invited') closeSheet(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('overlay').hidden && !(G && G.over)) closeSheet(); });
 
@@ -785,7 +791,7 @@ function openGame(o) {
   $('stakebar').hidden = !o.stake; if (o.stake) $('stakebar').innerHTML = `${coinSvg(18)}${o.stake} Blockcoins each on the line`;
   $('page').hidden = true; $('foot').hidden = true; $('game').hidden = false; sheetKind = null; closeSheet(); resignArmed = false; $('gResign').textContent = 'Resign'; renderSnd(); renderMu(); MUS.go('game');
   $('game').classList.toggle('solo1', o.mode === 'daily');
-  $('chat').hidden = o.mode !== 'online'; $('log').innerHTML = ''; $('mute').textContent = 'Mute';
+  $('chat').hidden = o.mode !== 'online' || !!PSDK.noChat; $('log').innerHTML = ''; $('mute').textContent = 'Mute';
   if (o.mode === 'online') sysMsg('Be nice: insults, racism and threats are blocked.');
   buildGrid(); requestAnimationFrame(() => fx.size()); renderAll(); startTurn();
 }
@@ -950,7 +956,7 @@ async function result(resigned) {
     why: g.timeLoser != null ? esc(g.names[g.timeLoser]) + ' ran out of time.' : resigned != null ? esc(g.names[resigned]) + ' resigned.' : st.stuck != null || st.reached != null ? stuckLine() : '', again: () => startLocal(g.set) });
 }
 function leave() {
-  PSDK.stop();
+  PSDK.stop(); if (G && G.mode === 'online') PSDK.leftRoom();
   if (G && G.mode === 'online') { if (G.st.over) NET.send({ t: 'leave' }); }
   G = null; sheetKind = null; closeSheet(); $('game').hidden = true; $('game').classList.remove('wait'); $('page').hidden = false; $('foot').hidden = false; renderView();
 }
@@ -1019,7 +1025,7 @@ function bubble(p, text) {
   panel.appendChild(b); setTimeout(() => b.remove(), 3300);
 }
 NET.on('chat', m => {
-  if (!G || G.mode !== 'online' || !m.text) return; if (G.muted && m.from !== G.me) return;
+  if (!G || G.mode !== 'online' || !m.text || PSDK.noChat) return; if (G.muted && m.from !== G.me) return;
   const d = document.createElement('div'); d.className = 'm' + (m.from === G.me ? ' me' : '');
   d.innerHTML = `<b>${esc(G.names[m.from])}</b>` + esc(m.text);
   const log = $('log'); log.appendChild(d); while (log.children.length > 60) log.firstChild.remove(); log.scrollTop = log.scrollHeight;
@@ -1037,7 +1043,7 @@ NET.on('hello', m => {
   else if (PENDING.create && !G) { PENDING.create = false; NET.send({ t: 'room_create', time: PREF.time, target: PREF.target, stake: 0 }); }
   if (!G) renderView();
 });
-NET.on('start', m => { PSDK.hideInvite(); startOnline(m); });
+NET.on('start', m => { PSDK.hideInvite(); PSDK.inMatch(m.state && m.state.id || 'match'); startOnline(m); });
 const moveQ = []; let moveBusy = false;
 NET.on('move', m => { moveQ.push(m); pumpMoves(); });
 async function pumpMoves() {
