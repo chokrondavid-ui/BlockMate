@@ -20,6 +20,8 @@ function html(portal) {
   s = s.replace('<script src="/shared/catalog.js"></script>', boot + '<script src="shared/catalog.js"></script>')
     .replace('<script src="/shared/game.js"></script>', '<script src="shared/game.js"></script>')
     .replace('<script src="/app.js"></script>', '<script src="app.js"></script>');
+  // Poki blocks external requests (Google Fonts included): the Poki build uses the fallback system fonts.
+  if (portal === 'poki') s = s.replace(/<link rel="preconnect" href="https:\/\/fonts\.googleapis\.com"[^>]*>\s*/g, '').replace(/<link[^>]*fonts\.googleapis\.com\/css2[^>]*>\s*/g, '');
   if (/(src|href)="\/(?!\/)/.test(s)) throw new Error('absolute path left in portal html: ' + s.match(/(src|href)="\/[^"]*"/)[0]);
   return s;
 }
