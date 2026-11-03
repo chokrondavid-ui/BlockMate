@@ -485,6 +485,18 @@ body{transition:background-color .6s}
 .portal .foot{display:none}
 @media (max-width:400px){.logo .wm{font-size:19px}.logo svg{width:28px;height:28px}.logo{gap:7px}}
 .dcard i{font-style:normal;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3)}
+/* v1.2.1: compact home, room on the sides for ads */
+@media (min-width:1001px){.wrap,.topbar .in{max-width:1080px}.mtile:not(.big) .bt b{font-size:17px}.mtile:not(.big){min-height:112px}.cols{grid-template-columns:minmax(0,1fr) 300px}}
+.li{display:flex;gap:12px}.li .who{flex:1;min-width:0}.li>.btn{flex:none}
+.mtile{min-height:96px}.mtile.big{min-height:124px}
+.mtile .art{grid-template-columns:repeat(16,1fr);padding:8px;gap:3px}
+.mtile .shade{background:linear-gradient(90deg,rgba(14,9,24,.97) 0%,rgba(14,9,24,.82) 45%,rgba(14,9,24,.35) 100%)}
+.mtile .bt{padding:12px 84px 12px 16px}
+.mtile .tl{top:8px;right:8px}
+.season{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:16px}.season h3{margin:0}
+.season .stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.season .stat{padding:8px 6px}
+@media (max-width:760px){.mtile,.mtile.big{min-height:104px}.mtile .art{grid-template-columns:repeat(10,1fr)}.season{grid-template-columns:1fr;gap:10px}.season .stats{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}.season .stat b{font-size:20px}.season .stat span{font-size:9.5px;letter-spacing:.06em}}
 /* live-server additions */
 .waiver{display:flex;gap:10px;align-items:flex-start;font-size:13px;color:var(--text-2);line-height:1.4;text-align:left;cursor:pointer}
 .waiver input{margin-top:2px;width:18px;height:18px;accent-color:var(--orange);flex:none}
@@ -510,7 +522,7 @@ body{transition:background-color .6s}
 <div class="page" id="page">
   <header class="topbar"><div class="in">
     <a class="logo" id="home" href="/" title="Home"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="3" y="3" width="15.5" height="15.5" rx="3.5" fill="#F2781C"/><rect x="21.5" y="3" width="15.5" height="15.5" rx="3.5" fill="none" stroke="#FF9B3D" stroke-width="2.4"/><rect x="3" y="21.5" width="15.5" height="15.5" rx="3.5" fill="#FF9B3D"/><rect x="21.5" y="21.5" width="15.5" height="15.5" rx="3.5" fill="#F2781C"/><path d="M6.5 7.5h6" stroke="#FFD7B0" stroke-width="2" stroke-linecap="round" opacity=".7"/></svg>
-      <div><div class="wm">BLOCK<b>MATE</b></div><span class="ver">v1.2</span></div></a>
+      <div><div class="wm">BLOCK<b>MATE</b></div><span class="ver">v1.2.1</span></div></a>
     <nav class="nav" aria-label="Main">
       <button type="button" data-tab="play" aria-current="page">Play<span class="dotn" data-dot hidden></span></button>
       <button type="button" data-tab="friends">Friends</button>

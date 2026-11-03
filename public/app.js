@@ -240,18 +240,18 @@ function viewPlay(v) {
     <div class="ident">${avatarHtml(P.eq.avatar, 48)}<div class="grow" style="min-width:0"><div class="nm">${esc(P.name)}</div><div class="muted">${embSvg(P.elo, 16)} <span style="color:${t[2]};font-weight:700">${t[1]}</span> · <span class="num">${P.elo}</span> Elo${P.plus ? ' · <span style="color:var(--gold)">Plus</span>' : ''}${P.boostUntil ? ` <span class="boostb" title="Ranked wins give double Elo until ${new Date(P.boostUntil).toLocaleString()}">×2 Elo boost</span>` : ''}</div></div><button class="btn sm" type="button" id="editP">${P.guest && !PORTAL ? 'Sign up' : 'Edit profile'}</button></div>
     <div class="mtiles">${MODES.map((m, i) => `<button class="mtile${i < 2 ? ' big' : ''}" type="button" data-mode="${m.k}" style="--mc:${m.col}"><span class="art" aria-hidden="true">${modeArt(m.col, i + 3)}</span><span class="shade"></span>
       <span class="tl">${badge(m.k)}</span><span class="bt"><b>${m.name}</b><em>${m.sub}</em></span><span class="go">Play</span></button>`).join('')}</div>
+    <div class="panel season"><h3>Your season</h3><div class="stats"><div class="stat"><b class="num">${P.st.games}</b><span>Games</span></div><div class="stat"><b class="num">${P.st.wins}</b><span>Wins</span></div><div class="stat"><b class="num">${P.st.games ? Math.round(P.st.wins / P.st.games * 100) : 0}%</b><span>Win rate</span></div><div class="stat"><b class="num">${P.st.bestCombo || 0}</b><span>Best combo</span></div></div></div>
   </div>
   <div class="stack">
     ${d.ready ? `<div class="daily"><div class="ph" style="position:relative;z-index:1"><h3>Daily reward</h3><span class="badge or">Day ${d.day}/7</span></div>
       <div class="row" style="position:relative;z-index:1">${coinSvg(44)}<div class="grow"><div class="ui num" style="font-size:28px;letter-spacing:.03em">+${d.amount}</div><div class="muted">Blockcoins${P.plus ? ' · Plus ×2' : ''}</div></div><button class="btn main sm" type="button" id="claim">Claim</button></div>
       <div class="days">${DAILY.map((a, i) => `<i class="${i + 1 < d.day ? 'done' : i + 1 === d.day ? 'now' : ''}">D${i + 1}</i>`).join('')}</div></div>`
       : `<div class="panel"><div class="ph"><h3>Daily reward</h3><span class="badge gr">Claimed</span></div><div class="muted">Day ${d.streak} done. Come back tomorrow for day ${(d.streak % 7) + 1}.</div></div>`}
-    <div class="panel"><div class="ph"><h3>Top players</h3><span class="live">Live</span></div>
+    <div class="panel"><div class="ph"><h3>Top 5</h3>${lb && lb.rank && !meIn ? `<span class="badge dk num">You #${lb.rank}</span>` : '<span class="live">Live</span>'}</div>
       <div class="list">${top.length ? top.map((x, i) => `<div class="li${x.id === P.id ? ' me' : ''}"><span class="pos${i < 3 ? ' p' + (i + 1) : ''}">${i + 1}</span>${avatarHtml(x.av, 30)}<div class="who"><b>${esc(x.name)}${x.id === P.id ? ' (you)' : ''}</b><span>${tierOf(x.elo)[1]}</span></div><span class="elo num">${x.elo}</span></div>`).join('')
         : `<div class="muted">${lb ? 'No ranked games yet. Win one and take the top spot.' : 'Loading…'}</div>`}
-      ${lb && !meIn && lb.rank ? `<div class="li me"><span class="pos">${lb.rank}</span><div class="who"><b>${esc(P.name)} (you)</b><span>${t[1]}</span></div><span class="elo num">${P.elo}</span></div>` : ''}</div>
+</div>
       <button class="btn sm" type="button" id="seeAll">See full ranking</button></div>
-    <div class="panel"><div class="ph"><h3>Your season</h3></div><div class="stats"><div class="stat"><b class="num">${P.st.games}</b><span>Games</span></div><div class="stat"><b class="num">${P.st.wins}</b><span>Wins</span></div><div class="stat"><b class="num">${P.st.bestCombo || 0}</b><span>Best combo</span></div></div></div>
   </div></div>`;
   const c = v.querySelector('#claim'); if (c) c.onclick = async () => { c.disabled = true; try { const r = await api('/api/daily', {}); SND.win(); toast('+' + r.amount + ' Blockcoins'); renderView(); } catch (e) { toast(e.message); c.disabled = false; } };
   v.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => { SND.tick(); ({ solo: soloSheet, online: onlineSheet, daily: dailySheet, friend: () => friendSheet(null), local: localSheet })[b.dataset.mode](); });
