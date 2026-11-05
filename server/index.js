@@ -76,6 +76,7 @@ function createServer(opts = {}) {
     if (rel.includes('..') || rel.includes('\0')) { res.writeHead(400); return res.end(); }
     if (rel.startsWith('/shared/')) return serveFile(req, res, path.join(ROOT, rel), 'no-cache');
     if (/^\/legal\/[a-z-]+$/.test(rel)) rel += '.html';
+    if (rel === '/guide' || rel === '/guide/') rel = '/guide/index';
     if (/^\/guide\/[a-z0-9-]+(\/[a-z0-9-]+)?\/?$/.test(rel)) rel = rel.replace(/\/$/, '') + '.html';
     if (rel.startsWith('/img/')) return serveFile(req, res, path.join(ROOT, 'public', rel), 'public, max-age=604800');
     const cache = rel.startsWith('/music/') ? 'public, max-age=604800' : 'no-cache';
