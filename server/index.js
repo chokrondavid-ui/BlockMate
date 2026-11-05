@@ -49,7 +49,7 @@ function createServer(opts = {}) {
   setInterval(() => { const t = Date.now(); for (const [k, b] of buckets) if (t - b.at > 3600e3) buckets.delete(k); }, 600e3).unref();
 
   // ---------- static files ----------
-  const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.mp4': 'audio/mp4', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml', '.webmanifest': 'application/manifest+json' };
+  const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.mp4': 'audio/mp4', '.xml': 'application/xml; charset=utf-8', '.webmanifest': 'application/manifest+json', '.jpg': 'image/jpeg', '.txt': 'text/plain; charset=utf-8', '.json': 'application/json', '.txt': 'text/plain; charset=utf-8', '.xml': 'application/xml', '.webmanifest': 'application/manifest+json' };
   function serveFile(req, res, file, cache) {
     fs.stat(file, (e, s) => {
       if (e || !s.isFile()) { res.writeHead(404, { 'Content-Type': 'text/plain' }); return res.end('Not found'); }
@@ -76,6 +76,8 @@ function createServer(opts = {}) {
     if (rel.includes('..') || rel.includes('\0')) { res.writeHead(400); return res.end(); }
     if (rel.startsWith('/shared/')) return serveFile(req, res, path.join(ROOT, rel), 'no-cache');
     if (/^\/legal\/[a-z-]+$/.test(rel)) rel += '.html';
+    if (/^\/guide\/[a-z0-9-]+(\/[a-z0-9-]+)?\/?$/.test(rel)) rel = rel.replace(/\/$/, '') + '.html';
+    if (rel.startsWith('/img/')) return serveFile(req, res, path.join(ROOT, 'public', rel), 'public, max-age=604800');
     const cache = rel.startsWith('/music/') ? 'public, max-age=604800' : 'no-cache';
     serveFile(req, res, path.join(ROOT, 'public', rel), cache);
   }
