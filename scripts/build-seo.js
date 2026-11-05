@@ -83,6 +83,8 @@ function page(p) {
 <link rel="alternate" hreflang="${p.lang}" href="${url}"><link rel="alternate" hreflang="${p.lang === 'fr' ? 'en' : 'fr'}" href="${altUrl}">
 <meta property="og:type" content="article"><meta property="og:title" content="${esc(p.title)}"><meta property="og:description" content="${esc(p.desc)}"><meta property="og:url" content="${url}"><meta property="og:image" content="${SITE}/img/og.jpg"><meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><meta name="theme-color" content="#0E0918">
+<meta name="google-adsense-account" content="ca-pub-6150811156400498">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6150811156400498" crossorigin="anonymous"></script>
 <script type="application/ld+json">${JSON.stringify(ld)}</script>
 <style>:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#0E0918;color:#E9E0FA;font:17px/1.65 system-ui,-apple-system,"Segoe UI",sans-serif}
 header{display:flex;gap:6px 18px;flex-wrap:wrap;align-items:center;justify-content:center;padding:14px 16px;border-bottom:1px solid #2E2246}header a{color:#B9A9D6;text-decoration:none;font-size:15px}header a.logo{color:#fff;font-weight:800;letter-spacing:.04em;margin-right:auto}header a.logo b{color:#F2781C}

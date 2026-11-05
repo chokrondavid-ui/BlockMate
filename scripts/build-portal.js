@@ -16,7 +16,8 @@ function html(portal) {
     .replace(/<footer class="foot" id="foot">[\s\S]*?<\/footer>/, `<footer class="foot pfoot" id="foot"><span>By playing, you accept the</span><a href="${API}/legal/cgv" target="_blank" rel="noopener">Terms</a><span>and</span><a href="${API}/legal/privacy" target="_blank" rel="noopener">Privacy Policy</a></footer>`)
     .replace('<a class="logo" id="home" href="/"', '<a class="logo" id="home" href="#"')
     .replace(/<meta (property="og:|name="twitter:)[^>]*>\s*/g, '').replace(/<link rel="(canonical|alternate|manifest|apple-touch-icon)"[^>]*>\s*/g, '')
-    .replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>\s*/, '').replace(/<noscript>[\s\S]*?<\/noscript>\s*/, '');
+    .replace(/<script type="application\/ld\+json">[\s\S]*?<\/script>\s*/, '').replace(/<noscript>[\s\S]*?<\/noscript>\s*/, '')
+    .replace(/<meta name="google-adsense-account"[^>]*>\s*/, '').replace(/<script async src="https:\/\/pagead2[^>]*><\/script>\s*/, '');
   const boot = `<script>window.BM_PORTAL=${JSON.stringify(portal)};window.BM_API=${JSON.stringify(API)};</script>\n${SDK[portal]}\n`;
   s = s.replace('<script src="/shared/catalog.js"></script>', boot + '<script src="shared/catalog.js"></script>')
     .replace('<script src="/shared/game.js"></script>', '<script src="shared/game.js"></script>')
