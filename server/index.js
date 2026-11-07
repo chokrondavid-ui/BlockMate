@@ -291,7 +291,8 @@ function createServer(opts = {}) {
   ws.attach(server, '/ws', req => accounts.userForToken(tokenOf(req) || new URL(req.url, 'http://x').searchParams.get('t')), (sock, uid) => online.connect(sock, uid));
 
   // Housekeeping: remove guests who never played and left a month ago.
-  const sweep = () => { try { const cutoff = Date.now() - 30 * 864e5; db.prepare(`DELETE FROM users WHERE guest=1 AND seen<? AND json_extract(st,'$.games')=0 AND paid=0 AND plus_until=0`).run(cutoff); } catch (e) { log('sweep', e.message); } };
+  const sweepStmt = db.prepare(`DELETE FROM users WHERE guest=1 AND seen<? AND json_extract(st,'$.games')=0 AND paid=0 AND plus_until=0`);
+  const sweep = () => { try { const cutoff = Date.now() - 30 * 864e5; sweepStmt.run(cutoff); } catch (e) { log('sweep', e.message); } };
   setInterval(sweep, 6 * 3600e3).unref();
 
   return { server, db, accounts, online, stripe, close: () => new Promise(r => { server.close(() => { db.close(); r(); }); server.closeAllConnections && server.closeAllConnections(); }) };

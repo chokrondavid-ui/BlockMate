@@ -19,6 +19,7 @@ function checkPass(pw, stored) {
 }
 
 function Accounts(db) {
+  const saveStmts = new Map();
   const q = {
     get: db.prepare('SELECT * FROM users WHERE id=?'),
     byName: db.prepare('SELECT * FROM users WHERE name_lc=?'),
@@ -55,7 +56,11 @@ function Accounts(db) {
     save(u, fields) {
       const cols = [], vals = [];
       for (const f of fields) { cols.push(f + '=?'); const v = u[f]; vals.push(typeof v === 'object' && v !== null ? JSON.stringify(v) : v); }
-      if (!cols.length) return; vals.push(u.id); db.prepare('UPDATE users SET ' + cols.join(',') + ' WHERE id=?').run(...vals);
+      if (!cols.length) return; vals.push(u.id);
+      // Reuse one prepared statement per column set: preparing a new one on every save leaked native memory.
+      const sql = 'UPDATE users SET ' + cols.join(',') + ' WHERE id=?'; let st = saveStmts.get(sql);
+      if (!st) { st = db.prepare(sql); saveStmts.set(sql, st); }
+      st.run(...vals);
     },
     // What the browser receives about its own player.
     me(u, extra) {
